@@ -59,6 +59,9 @@ jobs:
       - name: Version tests
         run: bash tests/version/run.sh
 
+      - name: Smoke tests
+        run: bash tests/smoke/run.sh
+
   workflows:
     runs-on: ubuntu-24.04
     permissions:

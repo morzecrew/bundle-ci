@@ -59,13 +59,13 @@ concurrency:
 jobs:
   pin:
     permissions: { contents: write, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.1.1
+    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.1.2
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: pin
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.2
     with:
       ref: ${{ needs.pin.outputs.sha }}
       channel: main
@@ -80,7 +80,7 @@ jobs:
     needs: [pin, bundle]
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.1.1
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.1.2
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -101,13 +101,13 @@ concurrency:
 jobs:
   guard:
     permissions: { contents: read }
-    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.1.1
+    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.1.2
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: guard
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.2
     with:
       ref: ${{ github.sha }}
       version: ${{ needs.guard.outputs.version }}
@@ -123,7 +123,7 @@ jobs:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.1.1
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.1.2
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -144,7 +144,7 @@ concurrency:
 jobs:
   bundle:
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.2
     with:
       ref: ${{ github.sha }}
       version: 0.0.0-pr.${{ github.event.pull_request.number }}
@@ -167,7 +167,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.1.1
+    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.1.2
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     secrets:
@@ -271,6 +271,7 @@ commit.
 ```console
 bash tests/pin/run.sh       # needs mikefarah's yq
 bash tests/version/run.sh
+bash tests/smoke/run.sh     # needs zstd
 shellcheck -x scripts/*.sh tests/*/*.sh
 ```
 

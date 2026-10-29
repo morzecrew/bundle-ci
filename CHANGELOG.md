@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-29
+
+### Fixed
+
+- A registry that drops one connection no longer fails a smoke job. `smoke.sh install` and `update` pull every image the archive pins by digest first, each tried up to 4 times with a growing pause, and morzer finds them present; a pull that fails 4 times stops the job and names the image.
+
 ## [0.1.1] - 2026-10-29
 
 ### Fixed
@@ -21,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/rehearse.sh` runs the smoke jobs' install, hooks, update and rollback on a workstation, from a product's root.
 - A product names its component keys, schema label, operator secrets and probe paths as inputs, and adds its own smoke checks as hooks in `.github/smoke.d`.
 
-[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/morzecrew/bundle-ci/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/morzecrew/bundle-ci/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/morzecrew/bundle-ci/releases/tag/v0.1.0

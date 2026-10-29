@@ -10,6 +10,8 @@
 #   smoke.sh diagnose                       `morzer status` and the Compose logs
 #   smoke.sh free-disk                      room for the release's disk requirement
 #
+# `install` and `update` first pull every image the archive pins, retrying,
+# because a registry that drops one connection fails morzer's own pull.
 # `install` trusts every key it is given and refuses an unsigned release. It
 # sets each of SMOKE_OPERATOR_SECRETS, the secrets only an operator sets, from
 # `random`; `init` generates the rest, and nothing here prints a secret.
@@ -37,6 +39,7 @@ install_release() {
 	done
 	[ ${#keys[@]} -gt 0 ] || die "install needs at least one signing key"
 
+	pull_images "${archive}"
 	sudo morzer init --mode dev --release "${archive}" --require-signature \
 		--no-recovery-recipient --install-units=false "${keys[@]}"
 
@@ -48,15 +51,37 @@ install_release() {
 	sudo morzer --verbose apply
 }
 
-# A field an archive's manifest declares, by its key: `rollback_safe`,
-# `database_schema_produces`.
-manifest_field() {
+# An archive's manifest.yaml: the shallowest one it holds.
+manifest_of() {
 	local manifest
 	manifest=$(tar -I zstd -tf "$1" | grep -E '(^|/)manifest\.yaml$' | awk '{ print length, $0 }' \
 		| sort -n | sed -n '1s/^[0-9]* //p')
 	[ -n "${manifest}" ] || die "$1 holds no manifest.yaml"
-	tar -I zstd -xOf "$1" "${manifest}" \
-		| sed -n "s/^[[:space:]]*$2:[[:space:]]*\([^[:space:]#]*\).*/\1/p" | sed -n 1p
+	tar -I zstd -xOf "$1" "${manifest}"
+}
+
+# A field an archive's manifest declares, by its key: `rollback_safe`,
+# `database_schema_produces`.
+manifest_field() {
+	manifest_of "$1" | sed -n "s/^[[:space:]]*$2:[[:space:]]*\([^[:space:]#]*\).*/\1/p" | sed -n 1p
+}
+
+# Pull every image an archive's manifest pins by digest, before morzer does.
+# morzer pulls each once and fails the whole operation on one dropped
+# connection; it skips an image already present under the reference it pins,
+# so these pulls, each tried 4 times, leave it nothing to fetch.
+pull_images() {
+	local pin attempt pins
+	pins=$(manifest_of "$1" | grep -oE '[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}' | sort -u)
+	for pin in ${pins}; do
+		for attempt in 1 2 3 4; do
+			sudo docker pull --quiet "${pin}" >/dev/null && break
+			[ "${attempt}" -lt 4 ] || die "could not pull ${pin} in 4 attempts"
+			echo "smoke.sh: pulling ${pin} failed (attempt ${attempt}); retrying in $((attempt * 15))s" >&2
+			sleep $((attempt * 15))
+		done
+	done
+	echo "smoke.sh: $(printf '%s\n' "${pins}" | grep -c .) pinned image(s) present"
 }
 
 rollback() {
@@ -104,6 +129,7 @@ install)
 	;;
 update)
 	[ $# -eq 2 ] || die "usage: smoke.sh update <archive>"
+	pull_images "$2"
 	sudo morzer --verbose update "$2"
 	;;
 probe) probe ;;

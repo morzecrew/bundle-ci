@@ -1,0 +1,343 @@
+# Build and publish a component repository's OCI images to ghcr, as every
+# component behind a bundle does:
+#
+# - a push to `main` publishes the images whose inputs changed as `main`
+#   (rolling) and `sha-<commit>`, then tells the bundle repository, whose dev
+#   channel pins them by digest;
+# - a `vX.Y.Z` tag on main publishes every image as `X.Y.Z` and creates the
+#   GitHub release from the tag's CHANGELOG section;
+# - a pull request builds what it changed, and pushes nothing.
+#
+# Images are plain manifests (`provenance: false`): an attestation would wrap
+# one in an index whose entries are untagged, which component-retention.yml's
+# untagged rule would delete from under the tag.
+name: component-image
+
+on:
+  workflow_call:
+    inputs:
+      images:
+        description: >-
+          The images, as a JSON array of {name, image, context, file, target?,
+          build-arg-prefix?, paths}: `image` is the ghcr package under the
+          repository's owner, `paths` the globs whose change rebuilds it, and
+          `build-arg-prefix` names the build args <prefix>VERSION,
+          <prefix>BUILD_ID and <prefix>GIT_SHA
+        type: string
+        required: true
+      component:
+        description: The component's name in the bundle repository's dispatch, such as backend
+        type: string
+        required: true
+      bundle-repo:
+        description: The bundle repository under the same owner to tell when main moves; empty tells none
+        type: string
+        default: ""
+      schema-label:
+        description: A label every image carries with the schema the migrations produce; empty sets none
+        type: string
+        default: ""
+      schema-dir:
+        description: The directory of versioned migrations (<n>__*.sql) whose highest number is the schema
+        type: string
+        default: db/migrations/postgres
+      tag-version-command:
+        description: A command printing the version a release tag must name, such as `jq -r .version package.json`; empty checks none
+        type: string
+        default: ""
+      platforms:
+        description: The platforms to build
+        type: string
+        default: linux/amd64
+      runs-on:
+        description: The runner label every job runs on
+        type: string
+        default: ubuntu-24.04
+      app-id:
+        description: The GitHub App whose token dispatches to the bundle repository; empty skips the dispatch with a notice
+        type: string
+        default: ""
+    secrets:
+      app-private-key:
+        description: That GitHub App's private key
+        required: false
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    runs-on: ${{ inputs.runs-on }}
+    # paths-filter lists a pull request's files through the API.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      images: ${{ steps.plan.outputs.images }}
+      version: ${{ steps.plan.outputs.version }}
+      sha_short: ${{ steps.plan.outputs.sha_short }}
+      schema: ${{ steps.plan.outputs.schema }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refuse a release tag off main
+        if: github.ref_type == 'tag'
+        run: |
+          set -euo pipefail
+          [[ ${GITHUB_REF_NAME} =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "::error::${GITHUB_REF_NAME} is not vX.Y.Z"; exit 1; }
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main \
+            || { echo "::error::${GITHUB_REF_NAME} is not on main"; exit 1; }
+
+      # The release commit sets it, so the image never disagrees with the
+      # repository's own version silently.
+      - name: Refuse a tag the repository's version disagrees with
+        if: github.ref_type == 'tag' && inputs.tag-version-command != ''
+        env:
+          COMMAND: ${{ inputs.tag-version-command }}
+        run: |
+          set -euo pipefail
+          version=$(bash -c "${COMMAND}")
+          [ "v${version}" = "${GITHUB_REF_NAME}" ] \
+            || { echo "::error::${GITHUB_REF_NAME} is tagged, but the repository says ${version}"; exit 1; }
+
+      - name: Name each image's paths
+        id: filters
+        env:
+          IMAGES: ${{ inputs.images }}
+        run: |
+          set -euo pipefail
+          {
+            echo "yaml<<EOF"
+            jq -r '.[] | "\(.name):", (.paths[] | "  - \(. | tojson)")' <<<"${IMAGES}"
+            echo "EOF"
+          } >>"${GITHUB_OUTPUT}"
+
+      # A push or a pull request builds only the images whose inputs changed: a
+      # rebuilt image gets a new digest, and a new digest is a new bundle and an
+      # update on every VM that follows it. A tag or a manual run builds all.
+      - name: What changed
+        id: changes
+        if: github.ref_type != 'tag' && (github.event_name == 'push' || github.event_name == 'pull_request')
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        with:
+          filters: ${{ steps.filters.outputs.yaml }}
+
+      - name: Plan the builds
+        id: plan
+        env:
+          IMAGES: ${{ inputs.images }}
+          FILTERED: ${{ steps.changes.outcome == 'success' }}
+          CHANGED: ${{ steps.changes.outputs.changes }}
+          SCHEMA_LABEL: ${{ inputs.schema-label }}
+          SCHEMA_DIR: ${{ inputs.schema-dir }}
+        run: |
+          set -euo pipefail
+          if [ "${FILTERED}" = true ]; then
+            images=$(jq -c --argjson changed "${CHANGED:-[]}" 'map(select(.name as $n | $changed | index($n)))' <<<"${IMAGES}")
+          else
+            images=$(jq -c . <<<"${IMAGES}")
+          fi
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            version=${GITHUB_REF_NAME#v}
+          else
+            version=main
+          fi
+          # The schema a build's migrations produce: its highest versioned
+          # migration, which a bundle declares as `database_schema_produces`.
+          schema=
+          if [ -n "${SCHEMA_LABEL}" ]; then
+            schema=$(find "${SCHEMA_DIR}" -maxdepth 1 -name '[0-9]*__*.sql' -printf '%f\n' \
+              | sed -E 's/^0*([0-9]+)__.*/\1/' | sort -n | tail -n 1)
+            [ -n "${schema}" ] || { echo "::error::no versioned migration in ${SCHEMA_DIR}"; exit 1; }
+          fi
+          {
+            echo "images=${images}"
+            echo "version=${version}"
+            echo "sha_short=${GITHUB_SHA::8}"
+            echo "schema=${schema}"
+          } >>"${GITHUB_OUTPUT}"
+          echo "Building: $(jq -r 'map(.name) | join(", ")' <<<"${images}") as ${version}"
+
+  build:
+    name: build ${{ matrix.name }}
+    needs: plan
+    if: needs.plan.outputs.images != '[]'
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.images) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Log in to ghcr.io
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Labels and build args
+        id: args
+        env:
+          IMAGE: ${{ matrix.image }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          SHA_SHORT: ${{ needs.plan.outputs.sha_short }}
+          SCHEMA: ${{ needs.plan.outputs.schema }}
+          SCHEMA_LABEL: ${{ inputs.schema-label }}
+          PREFIX: ${{ matrix.build-arg-prefix }}
+        run: |
+          set -euo pipefail
+          {
+            echo "labels<<EOF"
+            echo "org.opencontainers.image.title=${IMAGE}"
+            echo "org.opencontainers.image.version=${VERSION}"
+            [ -z "${SCHEMA_LABEL}" ] || echo "${SCHEMA_LABEL}=${SCHEMA}"
+            echo "EOF"
+            echo "build-args<<EOF"
+            if [ -n "${PREFIX}" ]; then
+              echo "${PREFIX}VERSION=${VERSION}"
+              echo "${PREFIX}BUILD_ID=${SHA_SHORT}"
+              echo "${PREFIX}GIT_SHA=${GITHUB_SHA}"
+            fi
+            echo "EOF"
+          } >>"${GITHUB_OUTPUT}"
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          # `main` and `sha-*` from main alone; `X.Y.Z`, without the `v`, from
+          # a release tag.
+          tags: |
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=ref,event=pr
+          labels: ${{ steps.args.outputs.labels }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          target: ${{ matrix.target }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          build-args: ${{ steps.args.outputs.build-args }}
+
+      - name: Digest
+        if: github.event_name != 'pull_request'
+        env:
+          REF: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          echo "- ${IMAGE}: \`${REF}\`" >>"${GITHUB_STEP_SUMMARY}"
+
+  # The bundle repository resolves every component's `main` to its digest
+  # itself; this only says one moved. A GitHub App's token, because
+  # GITHUB_TOKEN cannot reach another repository.
+  notify:
+    needs: [plan, build]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && inputs.bundle-repo != '' && needs.build.result == 'success'
+    runs-on: ${{ inputs.runs-on }}
+    permissions: {}
+    steps:
+      - name: Token
+        id: token
+        if: inputs.app-id != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.app-private-key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ inputs.bundle-repo }}
+          # A repository dispatch needs Contents write, and nothing else.
+          permission-contents: write
+
+      # curl, not gh: a self-hosted runner's host may have no gh.
+      - name: Dispatch
+        if: steps.token.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          IMAGES: ${{ needs.plan.outputs.images }}
+          COMPONENT: ${{ inputs.component }}
+          BUNDLE_REPO: ${{ inputs.bundle-repo }}
+        run: |
+          set -euo pipefail
+          jq -n --arg sha "${GITHUB_SHA}" --arg component "${COMPONENT}" --argjson images "${IMAGES}" \
+            '{event_type: "component-published", client_payload: {component: $component, ref: "main", sha: $sha, images: ($images | map(.image))}}' \
+            | curl -fsS -X POST \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              --data-binary @- \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY_OWNER}/${BUNDLE_REPO}/dispatches"
+
+      - name: No app configured
+        if: steps.token.outcome == 'skipped'
+        env:
+          BUNDLE_REPO: ${{ inputs.bundle-repo }}
+        run: echo "::notice::no app-id was passed; ${BUNDLE_REPO} was not told, and picks this up on its schedule"
+
+  release:
+    needs: [plan, build]
+    if: github.ref_type == 'tag'
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Notes from the CHANGELOG and the images
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          IMAGES: ${{ inputs.images }}
+        run: |
+          set -euo pipefail
+          # The section under `## [X.Y.Z]`, up to the next `## [`, without the
+          # link definitions the oldest section runs into.
+          awk -v v="${VERSION}" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on && !/^\[[^]]+\]: / { print }' CHANGELOG.md | sed -e '/./,$!d' >"${RUNNER_TEMP}/changes.md"
+          grep -q . "${RUNNER_TEMP}/changes.md" \
+            || { echo "::error::CHANGELOG.md has no section for ${VERSION}"; exit 1; }
+          {
+            echo "## Changelog"
+            echo
+            cat "${RUNNER_TEMP}/changes.md"
+            echo
+            echo "## Images"
+            echo
+            jq -r --arg owner "${GITHUB_REPOSITORY_OWNER}" --arg v "${VERSION}" \
+              '.[] | "- `ghcr.io/\($owner)/\(.image):\($v)`"' <<<"${IMAGES}"
+          } >"${RUNNER_TEMP}/notes.md"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" --verify-tag --title "${GITHUB_REF_NAME}" --notes-file "${RUNNER_TEMP}/notes.md"

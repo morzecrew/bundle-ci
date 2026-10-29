@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-30
+
+### Added
+
+- `component-image.yml`, for a repository whose images a bundle pins. It builds the images whose paths changed (an `images` JSON input of name, package, context, Dockerfile, target, build-arg prefix and paths), pushes `main` and `sha-<commit>` from `main` and `X.Y.Z` from a release tag, labels each with the schema its migrations produce, tells the bundle repository through a GitHub App token limited to Contents write, and creates a release tag's GitHub release from the CHANGELOG and the image list.
+- `component-retention.yml`, which keeps a component's last commit builds and newest untagged version, and never a version a release or `main` also tags.
+
 ## [0.1.2] - 2026-10-29
 
 ### Fixed
@@ -27,7 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/rehearse.sh` runs the smoke jobs' install, hooks, update and rollback on a workstation, from a product's root.
 - A product names its component keys, schema label, operator secrets and probe paths as inputs, and adds its own smoke checks as hooks in `.github/smoke.d`.
 
-[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/morzecrew/bundle-ci/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/morzecrew/bundle-ci/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/morzecrew/bundle-ci/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/morzecrew/bundle-ci/releases/tag/v0.1.0

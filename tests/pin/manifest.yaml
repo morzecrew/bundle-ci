@@ -1,0 +1,23 @@
+# A product manifest cut down to what scripts/pin.sh reads and writes, plus a
+# few keys and comments a test checks are left alone.
+api_version: selfhost/v1alpha1
+kind: application-release
+metadata:
+  name: demo
+  # Stamped by `morzer release build --version`, never by hand.
+  version: 0.0.0
+  vendor: acme
+images:
+  # An infrastructure image pin.sh never touches.
+  postgres: ghcr.io/acme/postgres:18.6@sha256:4a8e0a615b016b4eca04b391a76eb98af770cae540a1fa57e1980bc9909a51de
+  backend: ghcr.io/acme/demo-backend:main@sha256:7abbe6d59d44de6207af17051d70de988eecc8f8f6f0a604cc22f1d535095472
+  migrations: ghcr.io/acme/demo-migrations:main@sha256:9d401d7fff289d7a8bcf814067c68764038152386370084a0eb8f93cd2fbe2c9
+  frontend: ghcr.io/acme/demo-frontend:main@sha256:5eb3461a2a6bdfce89f91f4aeaef2174f398ac11fb7450e45d287b8d7f9e04b2
+compatibility:
+  # The migrations image's schema label, written by scripts/pin.sh.
+  database_schema_produces: 34
+  database_schema_min: 34
+  database_schema_max: 34
+  # Written by `scripts/pin.sh --release`; a plain pin leaves it.
+  rollback_safe: true
+  min_manager_version: "0.8.0"

@@ -9,10 +9,10 @@
 # for anything else.
 set -euo pipefail
 
-[ "${1:-}" = exists ] && [ $# -eq 2 ] || {
+if [ "${1:-}" != exists ] || [ $# -ne 2 ]; then
 	echo "usage: registry.sh exists <repo:tag>" >&2
 	exit 2
-}
+fi
 
 if out=$(oras manifest fetch --descriptor "$2" 2>&1); then
 	exit 0

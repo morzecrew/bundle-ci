@@ -72,7 +72,9 @@ rollback() {
 	fi
 	from=$(manifest_field "${new}" database_schema_produces)
 	to=$(manifest_field "${published}" database_schema_produces)
-	[ -n "${from}" ] && [ -n "${to}" ] || die "an archive declares no database_schema_produces"
+	if [ -z "${from}" ] || [ -z "${to}" ]; then
+		die "an archive declares no database_schema_produces"
+	fi
 	[ "${from}" != "${to}" ] \
 		|| die "morzer rollback refused (exit 9) between two releases on schema ${from}"
 	echo "smoke.sh: rollback refused across the schema change ${from} -> ${to}, as it must be"

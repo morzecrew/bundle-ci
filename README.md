@@ -193,6 +193,36 @@ jobs:
 | `health-port`, `probe-paths` | `8081`, `/__platform_healthz /health` | what a probe asks the edge's loopback port for |
 | `smoke-hooks` | `.github/smoke.d` | the product's smoke hooks |
 | `dev-pubkey`, `release-pubkey` | — | the public keys the dev and release builds are verified with, and `smoke-update` trusts the published bundle by |
+| `image-cache` | `true` | on a self-hosted runner, load the pinned images from the runner's cache (below) |
+
+### The image cache
+
+A smoke job's rig starts empty, and pulling every image a bundle pins took most
+of its time, over a link that drops connections. On a self-hosted runner each
+smoke job instead:
+
+1. lists the archive's pins in the rig (`smoke.sh pins`);
+2. copies each one the runner has not seen into `~/.cache/bundle-ci/oci`, an
+   OCI layout per repository and digest, with `oras` and up to 4 tries. For a
+   multi-platform index it keeps the index and every manifest it lists, but only
+   `linux/amd64`'s layers (`IMAGE_CACHE_PLATFORM`), half of what a full copy
+   would hold;
+3. loads every cached pin into the rig at once, an index's for its one platform,
+   each tried twice. Named
+   `repo@sha256:<hex>`, a loaded image answers `docker image inspect <pin>`, and
+   `docker create --pull never <pin>` uses it, so neither `smoke.sh` nor morzer
+   pulls it;
+4. prunes entries no job used for 14 days.
+
+A copy that fails 4 times, or a load that fails twice, is left to the rig's own
+retried pull: the cache makes a job faster, never one that fails. Entries fill
+through a temporary directory renamed into place, under a lock beside each
+(`flock`, where the runner has it), so jobs sharing a runner's disk never see
+half of one, nor copy one twice. The
+cache holds the private images the bundles pin, readable by the runner's user:
+a self-hosted runner is trusted with them already, as it pulls them. A hosted
+runner starts empty, so its rigs pull directly; `image-cache: false` makes a
+self-hosted one do the same.
 
 ### Smoke hooks
 
@@ -356,6 +386,7 @@ commit.
 bash tests/pin/run.sh       # needs mikefarah's yq
 bash tests/version/run.sh
 bash tests/smoke/run.sh     # needs zstd
+bash tests/cache/run.sh     # needs mikefarah's yq
 shellcheck -x scripts/*.sh tests/*/*.sh
 ```
 

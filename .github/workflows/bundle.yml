@@ -79,6 +79,10 @@ on:
         description: The minisign public key of released bundles
         type: string
         default: ""
+      image-cache:
+        description: On a self-hosted runner, load the pinned images into each rig from the runner's own cache (scripts/image-cache.sh), pulling only what it has not seen
+        type: boolean
+        default: true
       bundle-ci-ref:
         description: The bundle-ci ref whose scripts the jobs run
         type: string
@@ -363,6 +367,27 @@ jobs:
           done
           rig cp "${RIG}" "${RUNNER_TEMP}/dist/${ARCHIVE}" "/rig/dist/${ARCHIVE}"
 
+      # A self-hosted runner keeps every image a bundle pinned on its disk, and
+      # a rig loads them from there: the registry is asked only for what this
+      # runner has not seen, over a link that may drop. A hosted runner starts
+      # empty each time, so its rig pulls directly.
+      - name: Load the pinned images from the runner's cache
+        if: inputs.image-cache && runner.environment == 'self-hosted'
+        env:
+          TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ needs.build.outputs.archive }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG="${RUNNER_TEMP}/docker-cache" PATH="${RUNNER_TEMP}/bin:${PATH}"
+          mkdir -p "${DOCKER_CONFIG}"
+          BIN_DIR="${RUNNER_TEMP}/bin" bash .bundle-ci/scripts/tools.sh oras yq
+          printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          cache="${HOME}/.cache/bundle-ci/oci"
+          mapfile -t pins < <(bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh pins "/rig/dist/${ARCHIVE}")
+          bash .bundle-ci/scripts/image-cache.sh fill "${cache}" "${pins[@]}"
+          bash .bundle-ci/scripts/image-cache.sh load "${cache}" "${RIG}" "${pins[@]}"
+          bash .bundle-ci/scripts/image-cache.sh prune "${cache}" 14
+
       - name: Install tools in the rig
         run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/tools.sh morzer sops age
 
@@ -515,6 +540,29 @@ jobs:
           done
           rig cp "${RIG}" "${PUBLISHED}" "/rig/published/$(basename "${PUBLISHED}")"
           rig cp "${RIG}" "${RUNNER_TEMP}/dist/${ARCHIVE}" "/rig/dist/${ARCHIVE}"
+
+      # As smoke-install's: the published bundle's pins and the new one's.
+      - name: Load the pinned images from the runner's cache
+        if: steps.published.outputs.archive != '' && inputs.image-cache && runner.environment == 'self-hosted'
+        env:
+          TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ needs.build.outputs.archive }}
+          PUBLISHED: ${{ steps.published.outputs.archive }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG="${RUNNER_TEMP}/docker-cache" PATH="${RUNNER_TEMP}/bin:${PATH}"
+          mkdir -p "${DOCKER_CONFIG}"
+          BIN_DIR="${RUNNER_TEMP}/bin" bash .bundle-ci/scripts/tools.sh oras yq
+          printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          cache="${HOME}/.cache/bundle-ci/oci"
+          mapfile -t pins < <(
+            for archive in "/rig/published/$(basename "${PUBLISHED}")" "/rig/dist/${ARCHIVE}"; do
+              bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh pins "${archive}"
+            done | sort -u
+          )
+          bash .bundle-ci/scripts/image-cache.sh fill "${cache}" "${pins[@]}"
+          bash .bundle-ci/scripts/image-cache.sh load "${cache}" "${RIG}" "${pins[@]}"
+          bash .bundle-ci/scripts/image-cache.sh prune "${cache}" 14
 
       - name: Install tools in the rig
         if: steps.published.outputs.archive != ''

@@ -1,0 +1,82 @@
+# bundle-ci's own checks. GitHub-hosted runners only: this repository is
+# public, and a pull request from a fork must never run on a self-hosted
+# machine.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  ACTIONLINT: "1.7.12"
+  ZIZMOR: "1.30.0"
+
+jobs:
+  scripts:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Shellcheck
+        run: shellcheck -x scripts/*.sh tests/*/*.sh
+
+      # The runner's yq is another program of the same name; pin.sh needs
+      # mikefarah's.
+      - name: Install yq
+        run: |
+          BIN_DIR="${RUNNER_TEMP}/bin" bash scripts/tools.sh yq
+          echo "${RUNNER_TEMP}/bin" >>"${GITHUB_PATH}"
+
+      - name: Pin tests
+        run: bash tests/pin/run.sh
+
+      - name: Version tests
+        run: bash tests/version/run.sh
+
+  workflows:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        run: |
+          set -euo pipefail
+          base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT}"
+          curl -fsSL -o actionlint.tar.gz "${base}/actionlint_${ACTIONLINT}_linux_amd64.tar.gz"
+          curl -fsSL -o checksums.txt "${base}/actionlint_${ACTIONLINT}_checksums.txt"
+          grep " actionlint_${ACTIONLINT}_linux_amd64.tar.gz\$" checksums.txt | sed 's/ .*/  actionlint.tar.gz/' | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          sudo install -m 0755 actionlint /usr/local/bin/actionlint
+          rm actionlint actionlint.tar.gz checksums.txt
+
+      - name: actionlint
+        run: actionlint -color
+
+      - name: zizmor
+        run: pipx run "zizmor==${ZIZMOR}" --offline .github/workflows
+
+      # A release rewrites every `bundle-ci-ref` default to its tag, so a
+      # caller pinned to that tag runs that tag's scripts. One that drifted
+      # would run another release's.
+      - name: One bundle-ci-ref default
+        run: |
+          set -euo pipefail
+          refs=$(grep -hE '^ +default: [^ ]+ # bundle-ci-ref:' .github/workflows/*.yml | awk '{print $2}' | sort -u)
+          count=$(printf '%s\n' "${refs}" | grep -c .)
+          [ "${count}" -eq 1 ] || { echo "::error::bundle-ci-ref defaults differ: ${refs//$'\n'/, }"; exit 1; }
+          echo "bundle-ci-ref default: ${refs}"

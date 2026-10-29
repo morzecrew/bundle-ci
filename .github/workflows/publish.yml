@@ -1,0 +1,131 @@
+# Publish a bundle that bundle.yml built and smoke-tested in the same run:
+# `:<version>` first, then the channel tag moves to it. A product's main and
+# release workflows call it; a pull request never does.
+#
+# This is the one workflow that can write packages, and it runs nothing from
+# the product. A release also tags the component images it pins
+# `bundle-<version>`, in their own packages: each of them grants the product's
+# repository the Write role under "Manage Actions access".
+name: publish
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version bundle.yml built
+        type: string
+        required: true
+      archive:
+        description: The archive's file name in the `bundle` artifact
+        type: string
+        required: true
+      channel:
+        description: "Tag to move after publishing: main or stable"
+        type: string
+        required: true
+      images:
+        description: "Component images (`repo@digest`, space-separated) to tag `bundle-<version>` before publishing; empty tags none"
+        type: string
+        default: ""
+      runs-on:
+        description: The runner label the job runs on
+        type: string
+        default: ubuntu-24.04
+      bundle-ci-ref:
+        description: The bundle-ci ref whose scripts the job runs
+        type: string
+        default: main # bundle-ci-ref: a release rewrites this to its tag
+
+permissions: {}
+
+env:
+  ARTIFACT_TYPE: application/vnd.morzer.release.bundle.v1
+  LAYER_TYPE: application/vnd.morzer.release.bundle.v1.tar+zstd
+
+# A job container runs `run:` under sh unless told otherwise; the steps are
+# bash, as GitHub-hosted runners ran them (`bash -e {0}`, no pipefail).
+defaults:
+  run:
+    shell: bash -e {0}
+
+jobs:
+  publish:
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Install git, curl, ca-certificates and jq
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git curl ca-certificates jq
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: morzecrew/bundle-ci
+          ref: ${{ inputs.bundle-ci-ref }}
+          path: .bundle-ci
+          persist-credentials: false
+
+      - name: Install tools
+        run: bash .bundle-ci/scripts/tools.sh oras
+
+      - name: Log in to ghcr
+        env:
+          TOKEN: ${{ github.token }}
+          # Credentials stay under the runner's temporary directory, where the
+          # container's root home does not reach.
+          DOCKER_CONFIG: ${{ runner.temp }}/docker
+        run: |
+          mkdir -p "${DOCKER_CONFIG}"
+          printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          echo "DOCKER_CONFIG=${DOCKER_CONFIG}" >>"${GITHUB_ENV}"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bundle
+          path: ${{ runner.temp }}/dist
+
+      - name: Publish
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCHIVE: ${{ inputs.archive }}
+          CHANNEL: ${{ inputs.channel }}
+          IMAGES: ${{ inputs.images }}
+        run: |
+          repo="ghcr.io/${GITHUB_REPOSITORY,,}"
+          scripts=${GITHUB_WORKSPACE}/.bundle-ci/scripts
+          status=0
+          bash "${scripts}/registry.sh" exists "${repo}:${VERSION}" || status=$?
+          case "${status}" in
+          0) echo "::error::${repo}:${VERSION} is already published, and a version never changes content"; exit 1 ;;
+          1) ;;
+          *) exit 1 ;;
+          esac
+          # A release pins images the components' retention would prune once
+          # newer builds pass them; it never deletes a version with a tag its
+          # filter does not match. Tagged before the bundle is pushed, so no
+          # published release names an image that is not kept; a rerun tags
+          # the same digests again, which changes nothing.
+          for image in ${IMAGES}; do
+            oras tag "${image}" "bundle-${VERSION}"
+            echo "Tagged \`${image%@*}:bundle-${VERSION}\` (\`${image##*@}\`)." >>"${GITHUB_STEP_SUMMARY}"
+          done
+          cd "${RUNNER_TEMP}/dist"
+          oras push "${repo}:${VERSION}" --artifact-type "${ARTIFACT_TYPE}" "${ARCHIVE}:${LAYER_TYPE}"
+          oras tag "${repo}:${VERSION}" "${CHANNEL}"
+          bash "${scripts}/registry.sh" exists "${repo}:${CHANNEL}"
+          manifest=$(oras manifest fetch --descriptor "${repo}:${VERSION}" | jq -r '.digest')
+          {
+            echo
+            echo "Published \`${repo}:${VERSION}\` (\`${manifest}\`) and moved \`:${CHANNEL}\` to it."
+          } >>"${GITHUB_STEP_SUMMARY}"
+
+      # The steps above ran as root over the runner's mounted workspace, so
+      # its files are root's now; the runner's next job on the host could
+      # not clean them for its checkout. Hand them back to the runner's user.
+      - name: Hand the workspace back to the runner's user
+        if: always()
+        run: chown -R "$(stat -c %u:%g "${RUNNER_WORKSPACE}")" "${RUNNER_WORKSPACE}" "${RUNNER_TEMP}"

@@ -1,0 +1,566 @@
+# Build, sign and smoke-test one bundle of the calling product. A product's
+# main, release and pull-request workflows call it, and the first two then
+# call publish.yml with its outputs.
+#
+# Bundle code runs as root in the smoke jobs, so no job here can write
+# packages: a called workflow's jobs are checked against the caller's grant
+# when it loads, and a pull request grants only `packages: read`.
+#
+# Every job checks bundle-ci out under .bundle-ci at `bundle-ci-ref`, whose
+# default each release rewrites to its own tag: a called workflow cannot see
+# its own ref, so the scripts it runs are named here. bundle-ci's own CI
+# passes the commit it tests.
+name: bundle
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The product commit to build
+        type: string
+        required: true
+      version:
+        description: Version to stamp; empty takes scripts/version.sh's dev version
+        type: string
+        default: ""
+      pin:
+        description: "Pin the components first: none, dev (their main) or release (the committed pins, promoted to `version`)"
+        type: string
+        default: none
+      channel:
+        description: "Channel the caller publishes to (main or stable); empty skips the published-version check"
+        type: string
+        default: ""
+      signing:
+        description: "Key to sign with: dev, release, or ephemeral (made in the job)"
+        type: string
+        required: true
+      on-existing:
+        description: "When the version is already published: fail, or skip the run"
+        type: string
+        default: fail
+      runs-on:
+        description: The runner label every job runs on
+        type: string
+        default: ubuntu-24.04
+      components:
+        description: The manifest's `images:` keys pin.sh pins, space-separated
+        type: string
+        default: backend migrations frontend
+      schema-image:
+        description: The key whose image carries the schema label; empty when none does
+        type: string
+        default: migrations
+      schema-label:
+        description: The schema label; empty is tech.morze.<metadata.name>.schema
+        type: string
+        default: ""
+      operator-secrets:
+        description: Secrets only an operator sets, which the smoke install sets from random, space-separated
+        type: string
+        default: ""
+      health-port:
+        description: The edge's loopback health port the smoke jobs probe
+        type: string
+        default: "8081"
+      probe-paths:
+        description: The paths a probe asks the health port for, space-separated
+        type: string
+        default: /__platform_healthz /health
+      smoke-hooks:
+        description: The product's directory of smoke hooks (*.sh), run in the rig after the install, each followed by a probe
+        type: string
+        default: .github/smoke.d
+      dev-pubkey:
+        description: The minisign public key of the dev channel's bundles
+        type: string
+        default: ""
+      release-pubkey:
+        description: The minisign public key of released bundles
+        type: string
+        default: ""
+      bundle-ci-ref:
+        description: The bundle-ci ref whose scripts the jobs run
+        type: string
+        default: main # bundle-ci-ref: a release rewrites this to its tag
+    secrets:
+      minisign-key:
+        description: The minisign secret key, for dev and release signing
+        required: false
+    outputs:
+      version:
+        description: The version the bundle was built as
+        value: ${{ jobs.build.outputs.version }}
+      archive:
+        description: The archive's file name in the `bundle` artifact
+        value: ${{ jobs.build.outputs.archive }}
+      proceed:
+        description: "'true' when the version is not published yet; the caller needs this workflow, so its smoke tests have passed"
+        value: ${{ jobs.build.outputs.proceed }}
+      images:
+        description: "The component images the bundle pins, as space-separated `repo@digest`"
+        value: ${{ jobs.build.outputs.images }}
+
+permissions: {}
+
+# A job container runs `run:` under sh unless told otherwise; the steps are
+# bash, as GitHub-hosted runners ran them (`bash -e {0}`, no pipefail).
+defaults:
+  run:
+    shell: bash -e {0}
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+      archive: ${{ steps.archive.outputs.archive }}
+      pubkey: ${{ steps.sign.outputs.pubkey }}
+      proceed: ${{ steps.existing.outputs.proceed }}
+      images: ${{ steps.archive.outputs.images }}
+      project: ${{ steps.build.outputs.project }}
+    steps:
+      - name: Install git, curl, ca-certificates and jq
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git curl ca-certificates jq
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          # scripts/version.sh describes the last bundle/ commit from the reachable tags.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: morzecrew/bundle-ci
+          ref: ${{ inputs.bundle-ci-ref }}
+          path: .bundle-ci
+          persist-credentials: false
+
+      # The workspace outlives the job on a self-hosted runner, owned by the
+      # runner's user, and git refuses it to this container's root.
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Install tools
+        run: bash .bundle-ci/scripts/tools.sh minisign zstd morzer oras yq
+
+      - name: Log in to ghcr
+        env:
+          TOKEN: ${{ github.token }}
+          # Credentials stay under the runner's temporary directory, where the
+          # container's root home does not reach.
+          DOCKER_CONFIG: ${{ runner.temp }}/docker
+        run: |
+          mkdir -p "${DOCKER_CONFIG}"
+          printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          echo "DOCKER_CONFIG=${DOCKER_CONFIG}" >>"${GITHUB_ENV}"
+
+      - name: Pin the components
+        if: inputs.pin != 'none'
+        env:
+          PIN: ${{ inputs.pin }}
+          VERSION: ${{ inputs.version }}
+          PIN_COMPONENTS: ${{ inputs.components }}
+          PIN_SCHEMA_IMAGE: ${{ inputs.schema-image }}
+          SCHEMA_LABEL: ${{ inputs.schema-label }}
+        run: |
+          case "${PIN}" in
+          dev) bash .bundle-ci/scripts/pin.sh ;;
+          release) bash .bundle-ci/scripts/pin.sh --release "${VERSION}" ;;
+          *) echo "::error::unknown pin mode '${PIN}'"; exit 1 ;;
+          esac
+
+      - name: Build
+        id: build
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          # Two commits with one bundle/ name one version, so a run after a
+          # commit outside bundle/ finds its version published.
+          [ -n "${VERSION}" ] || VERSION=$(bash .bundle-ci/scripts/version.sh)
+          set -- --version "${VERSION}"
+          # Under --json morzer's error is only in the envelope on stdout.
+          if ! out=$(morzer release build bundle "$@" --json); then
+            printf '%s\n' "${out}" >&2
+            exit 1
+          fi
+          version=$(jq -r '.data.version' <<<"${out}")
+          echo "version=${version}" >>"${GITHUB_OUTPUT}"
+          # The Compose project the smoke jobs look a service up by.
+          project=$(yq -r '.runtimes.compose.options.project // .metadata.name' bundle/manifest.yaml)
+          echo "project=${project}" >>"${GITHUB_OUTPUT}"
+
+      - name: Refuse a published version
+        id: existing
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          CHANNEL: ${{ inputs.channel }}
+          ON_EXISTING: ${{ inputs.on-existing }}
+        run: |
+          ref="ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}"
+          proceed=true
+          if [ -n "${CHANNEL}" ]; then
+            status=0
+            bash .bundle-ci/scripts/registry.sh exists "${ref}" || status=$?
+            case "${status}" in
+            0)
+              if [ "${ON_EXISTING}" = skip ]; then
+                echo "::notice::${ref} is already published; nothing new to build"
+                echo "${ref} is already published; nothing new to build." >>"${GITHUB_STEP_SUMMARY}"
+                proceed=false
+              else
+                echo "::error::${ref} is already published, and a version never changes content"
+                exit 1
+              fi
+              ;;
+            1) ;;
+            *) exit 1 ;;
+            esac
+          fi
+          echo "proceed=${proceed}" >>"${GITHUB_OUTPUT}"
+
+      - name: Sign
+        id: sign
+        if: steps.existing.outputs.proceed == 'true'
+        env:
+          SIGNING: ${{ inputs.signing }}
+          MINISIGN_KEY: ${{ secrets.minisign-key }}
+          DEV_PUBKEY: ${{ inputs.dev-pubkey }}
+          RELEASE_PUBKEY: ${{ inputs.release-pubkey }}
+        run: |
+          umask 077
+          key="${RUNNER_TEMP}/minisign.key"
+          trap 'rm -f "${key}"' EXIT
+          case "${SIGNING}" in
+          ephemeral)
+            minisign -G -W -p "${RUNNER_TEMP}/ephemeral.pub" -s "${key}" >/dev/null
+            pubkey=$(sed -n 2p "${RUNNER_TEMP}/ephemeral.pub")
+            ;;
+          dev | release)
+            [ -n "${MINISIGN_KEY}" ] || { echo "::error::no ${SIGNING} signing key was passed"; exit 1; }
+            if [ "${SIGNING}" = release ]; then pubkey=${RELEASE_PUBKEY}; else pubkey=${DEV_PUBKEY}; fi
+            [ -n "${pubkey}" ] || { echo "::error::no ${SIGNING} public key was passed"; exit 1; }
+            printf '%s\n' "${MINISIGN_KEY}" >"${key}"
+            chmod 0600 "${key}"
+            ;;
+          *) echo "::error::unknown signing '${SIGNING}'"; exit 1 ;;
+          esac
+          minisign -S -s "${key}" -m bundle/SHA256SUMS >/dev/null
+          morzer release verify bundle --signing-key "${pubkey}"
+          echo "pubkey=${pubkey}" >>"${GITHUB_OUTPUT}"
+
+      - name: Archive
+        id: archive
+        if: steps.existing.outputs.proceed == 'true'
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          PROJECT: ${{ steps.build.outputs.project }}
+          COMPONENTS: ${{ inputs.components }}
+        run: |
+          archive="${PROJECT}-${VERSION}.tar.zst"
+          mkdir -p "${RUNNER_TEMP}/dist"
+          if ! out=$(morzer release archive bundle -o "${RUNNER_TEMP}/dist/${archive}" --json); then
+            printf '%s\n' "${out}" >&2
+            exit 1
+          fi
+          digest=$(jq -r '.data.digest' <<<"${out}")
+          echo "archive=${archive}" >>"${GITHUB_OUTPUT}"
+          images=()
+          {
+            echo "## ${PROJECT} ${VERSION}"
+            echo
+            echo "| Component | Tag | Digest |"
+            echo "|---|---|---|"
+            for key in ${COMPONENTS}; do
+              pin=$(yq -r ".images.${key}" bundle/manifest.yaml)
+              image=${pin%@*}
+              images+=("${image%:*}@${pin##*@}")
+              echo "| ${key} | \`${image##*:}\` | \`${pin##*@}\` |"
+            done
+            echo
+            echo "Bundle digest: \`${digest}\`"
+          } >>"${GITHUB_STEP_SUMMARY}"
+          echo "images=${images[*]}" >>"${GITHUB_OUTPUT}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.existing.outputs.proceed == 'true'
+        with:
+          name: bundle
+          path: ${{ runner.temp }}/dist/${{ steps.archive.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+      # The steps above ran as root over the runner's mounted workspace, so
+      # its files are root's now; the runner's next job on the host could
+      # not clean them for its checkout. Hand them back to the runner's user.
+      - name: Hand the workspace back to the runner's user
+        if: always()
+        run: chown -R "$(stat -c %u:%g "${RUNNER_WORKSPACE}")" "${RUNNER_WORKSPACE}" "${RUNNER_TEMP}"
+
+  smoke-install:
+    needs: build
+    if: needs.build.outputs.proceed == 'true'
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      packages: read
+    env:
+      # One rig per run and job, so two hosts running this job never share an
+      # installation, and a rig left by a killed job meets nothing.
+      RIG: ${{ needs.build.outputs.project }}-smoke-${{ github.run_id }}-${{ github.run_attempt }}-install
+    steps:
+      # The product's checkout carries its smoke hooks.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: morzecrew/bundle-ci
+          ref: ${{ inputs.bundle-ci-ref }}
+          path: .bundle-ci
+          persist-credentials: false
+
+      - name: Free the disk the release requires
+        if: runner.environment == 'github-hosted'
+        run: bash .bundle-ci/scripts/smoke.sh free-disk
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bundle
+          path: ${{ runner.temp }}/dist
+
+      - name: Start the rig
+        run: bash .bundle-ci/scripts/rig.sh start "${RIG}"
+
+      - name: Copy the tooling and the archive into the rig
+        env:
+          ARCHIVE: ${{ needs.build.outputs.archive }}
+          PROJECT: ${{ needs.build.outputs.project }}
+          HEALTH_PORT: ${{ inputs.health-port }}
+          PROBE_PATHS: ${{ inputs.probe-paths }}
+          OPERATOR_SECRETS: ${{ inputs.operator-secrets }}
+        run: |
+          {
+            printf 'SMOKE_PROJECT=%q\n' "${PROJECT}"
+            printf 'SMOKE_HEALTH_PORT=%q\n' "${HEALTH_PORT}"
+            printf 'SMOKE_PROBE_PATHS=%q\n' "${PROBE_PATHS}"
+            printf 'SMOKE_OPERATOR_SECRETS=%q\n' "${OPERATOR_SECRETS}"
+          } >"${RUNNER_TEMP}/smoke.env"
+          rig() { bash .bundle-ci/scripts/rig.sh "$@"; }
+          rig cp "${RIG}" "${RUNNER_TEMP}/smoke.env" /rig/smoke.env
+          for script in tools.sh smoke.sh smoke-lib.sh; do
+            rig cp "${RIG}" ".bundle-ci/scripts/${script}" "/rig/${script}"
+          done
+          rig cp "${RIG}" "${RUNNER_TEMP}/dist/${ARCHIVE}" "/rig/dist/${ARCHIVE}"
+
+      - name: Install tools in the rig
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/tools.sh morzer sops age
+
+      - name: Log the rig in to ghcr
+        env:
+          TOKEN: ${{ github.token }}
+        run: printf %s "${TOKEN}" | bash .bundle-ci/scripts/rig.sh login "${RIG}" ghcr.io "${GITHUB_ACTOR}"
+
+      - name: Install the bundle
+        env:
+          ARCHIVE: ${{ needs.build.outputs.archive }}
+          PUBKEY: ${{ needs.build.outputs.pubkey }}
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh install "/rig/dist/${ARCHIVE}" "${PUBKEY}"
+
+      - name: Probe
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh probe
+
+      # In name order, each followed by a probe. A hook sources
+      # /rig/smoke-lib.sh for what it shares with smoke.sh.
+      - name: Run the product's smoke hooks
+        env:
+          HOOKS: ${{ inputs.smoke-hooks }}
+        run: |
+          shopt -s nullglob
+          hooks=("${HOOKS}"/*.sh)
+          if [ ${#hooks[@]} -eq 0 ]; then
+            echo "No smoke hooks in ${HOOKS}."
+            exit 0
+          fi
+          rig() { bash .bundle-ci/scripts/rig.sh "$@"; }
+          for hook in "${hooks[@]}"; do
+            name=$(basename "${hook}")
+            echo "::group::${name}"
+            rig cp "${RIG}" "${hook}" "/rig/smoke.d/${name}"
+            rig exec "${RIG}" bash "/rig/smoke.d/${name}"
+            rig exec "${RIG}" bash /rig/smoke.sh probe
+            echo "::endgroup::"
+          done
+
+      - name: Diagnose
+        if: failure()
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh diagnose
+
+      - name: Stop the rig
+        if: always()
+        run: bash .bundle-ci/scripts/rig.sh stop "${RIG}"
+
+  smoke-update:
+    needs: build
+    if: needs.build.outputs.proceed == 'true'
+    runs-on: ${{ inputs.runs-on }}
+    permissions:
+      contents: read
+      packages: read
+    env:
+      RIG: ${{ needs.build.outputs.project }}-smoke-${{ github.run_id }}-${{ github.run_attempt }}-update
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: morzecrew/bundle-ci
+          ref: ${{ inputs.bundle-ci-ref }}
+          path: .bundle-ci
+          persist-credentials: false
+
+      # Only the host reaches ghcr here, to fetch the published bundle; the
+      # rig installs its own tools and pulls its own images. oras goes under
+      # $RUNNER_TEMP, which the job owns, so the host needs no sudo.
+      - name: Install oras
+        run: |
+          BIN_DIR="${RUNNER_TEMP}/bin" bash .bundle-ci/scripts/tools.sh oras
+          echo "${RUNNER_TEMP}/bin" >>"${GITHUB_PATH}"
+
+      - name: Log in to ghcr
+        env:
+          TOKEN: ${{ github.token }}
+          # The host reaches ghcr to fetch the published bundle; its
+          # credentials stay under the runner's temporary directory.
+          DOCKER_CONFIG: ${{ runner.temp }}/docker
+        run: |
+          mkdir -p "${DOCKER_CONFIG}"
+          printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          echo "DOCKER_CONFIG=${DOCKER_CONFIG}" >>"${GITHUB_ENV}"
+
+      # The path the caller's customers take: a release from the last release,
+      # a dev build from the dev channel's main.
+      - name: Fetch the published bundle
+        id: published
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          DEV_PUBKEY: ${{ inputs.dev-pubkey }}
+          RELEASE_PUBKEY: ${{ inputs.release-pubkey }}
+        run: |
+          if [ "${CHANNEL}" = stable ]; then
+            tag=stable pubkey=${RELEASE_PUBKEY}
+          else
+            tag=main pubkey=${DEV_PUBKEY}
+          fi
+          ref="ghcr.io/${GITHUB_REPOSITORY,,}:${tag}"
+          status=0
+          bash .bundle-ci/scripts/registry.sh exists "${ref}" || status=$?
+          case "${status}" in
+          0)
+            [ -n "${pubkey}" ] || { echo "::error::no public key was passed for ${ref}"; exit 1; }
+            oras pull "${ref}" -o "${RUNNER_TEMP}/published"
+            archive=$(find "${RUNNER_TEMP}/published" -maxdepth 1 -name '*.tar.zst' -print -quit)
+            [ -n "${archive}" ] || { echo "::error::${ref} holds no bundle archive"; exit 1; }
+            echo "archive=${archive}" >>"${GITHUB_OUTPUT}"
+            echo "pubkey=${pubkey}" >>"${GITHUB_OUTPUT}"
+            ;;
+          1) echo "::notice::${ref} is not published yet; only the fresh install is proven" ;;
+          *) exit 1 ;;
+          esac
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.published.outputs.archive != ''
+        with:
+          name: bundle
+          path: ${{ runner.temp }}/dist
+
+      - name: Free the disk the release requires
+        if: steps.published.outputs.archive != '' && runner.environment == 'github-hosted'
+        run: bash .bundle-ci/scripts/smoke.sh free-disk
+
+      - name: Start the rig
+        if: steps.published.outputs.archive != ''
+        run: bash .bundle-ci/scripts/rig.sh start "${RIG}"
+
+      - name: Copy the tooling and the archives into the rig
+        if: steps.published.outputs.archive != ''
+        env:
+          ARCHIVE: ${{ needs.build.outputs.archive }}
+          PUBLISHED: ${{ steps.published.outputs.archive }}
+          PROJECT: ${{ needs.build.outputs.project }}
+          HEALTH_PORT: ${{ inputs.health-port }}
+          PROBE_PATHS: ${{ inputs.probe-paths }}
+          OPERATOR_SECRETS: ${{ inputs.operator-secrets }}
+        run: |
+          {
+            printf 'SMOKE_PROJECT=%q\n' "${PROJECT}"
+            printf 'SMOKE_HEALTH_PORT=%q\n' "${HEALTH_PORT}"
+            printf 'SMOKE_PROBE_PATHS=%q\n' "${PROBE_PATHS}"
+            printf 'SMOKE_OPERATOR_SECRETS=%q\n' "${OPERATOR_SECRETS}"
+          } >"${RUNNER_TEMP}/smoke.env"
+          rig() { bash .bundle-ci/scripts/rig.sh "$@"; }
+          rig cp "${RIG}" "${RUNNER_TEMP}/smoke.env" /rig/smoke.env
+          for script in tools.sh smoke.sh smoke-lib.sh; do
+            rig cp "${RIG}" ".bundle-ci/scripts/${script}" "/rig/${script}"
+          done
+          rig cp "${RIG}" "${PUBLISHED}" "/rig/published/$(basename "${PUBLISHED}")"
+          rig cp "${RIG}" "${RUNNER_TEMP}/dist/${ARCHIVE}" "/rig/dist/${ARCHIVE}"
+
+      - name: Install tools in the rig
+        if: steps.published.outputs.archive != ''
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/tools.sh morzer sops age
+
+      - name: Log the rig in to ghcr
+        if: steps.published.outputs.archive != ''
+        env:
+          TOKEN: ${{ github.token }}
+        run: printf %s "${TOKEN}" | bash .bundle-ci/scripts/rig.sh login "${RIG}" ghcr.io "${GITHUB_ACTOR}"
+
+      - name: Install the published bundle
+        if: steps.published.outputs.archive != ''
+        env:
+          PUBLISHED: ${{ steps.published.outputs.archive }}
+          PUBLISHED_PUBKEY: ${{ steps.published.outputs.pubkey }}
+          PUBKEY: ${{ needs.build.outputs.pubkey }}
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh install "/rig/published/$(basename "${PUBLISHED}")" "${PUBLISHED_PUBKEY}" "${PUBKEY}"
+
+      - name: Probe the published bundle
+        if: steps.published.outputs.archive != ''
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh probe
+
+      - name: Update to the new bundle
+        if: steps.published.outputs.archive != ''
+        env:
+          ARCHIVE: ${{ needs.build.outputs.archive }}
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh update "/rig/dist/${ARCHIVE}"
+
+      - name: Probe the update
+        if: steps.published.outputs.archive != ''
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh probe
+
+      - name: Roll back to the published bundle
+        if: steps.published.outputs.archive != ''
+        env:
+          PUBLISHED: ${{ steps.published.outputs.archive }}
+          ARCHIVE: ${{ needs.build.outputs.archive }}
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh rollback "/rig/published/$(basename "${PUBLISHED}")" "/rig/dist/${ARCHIVE}"
+
+      - name: Probe the rollback
+        if: steps.published.outputs.archive != ''
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh probe
+
+      - name: Diagnose
+        if: failure()
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh diagnose
+
+      - name: Stop the rig
+        if: always()
+        run: bash .bundle-ci/scripts/rig.sh stop "${RIG}"

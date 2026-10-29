@@ -1,0 +1,166 @@
+# The dev channel's first job: pin every component's `main` into the
+# product's bundle/manifest.yaml and commit a changed pin to the product's
+# main. The caller then builds that commit (bundle.yml) and publishes it
+# (publish.yml).
+#
+# A dispatch only says "look now": the pins are re-resolved from the registry
+# and its payload is never read.
+name: pin
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: The runner label the job runs on
+        type: string
+        default: ubuntu-24.04
+      components:
+        description: The manifest's `images:` keys to pin, space-separated
+        type: string
+        default: backend migrations frontend
+      schema-image:
+        description: The key whose image carries the schema label; empty when none does
+        type: string
+        default: migrations
+      schema-label:
+        description: The schema label; empty is tech.morze.<metadata.name>.schema
+        type: string
+        default: ""
+      bundle-ci-ref:
+        description: The bundle-ci ref whose scripts the job runs
+        type: string
+        default: main # bundle-ci-ref: a release rewrites this to its tag
+    outputs:
+      sha:
+        description: The product commit to build, the pin's or main's own
+        value: ${{ jobs.pin.outputs.sha }}
+
+permissions: {}
+
+# A job container runs `run:` under sh unless told otherwise; the steps are
+# bash, as GitHub-hosted runners ran them (`bash -e {0}`, no pipefail).
+defaults:
+  run:
+    shell: bash -e {0}
+
+jobs:
+  pin:
+    # A run from any other branch pins nothing, and the jobs that need it skip.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+    permissions:
+      contents: write
+      packages: read
+    outputs:
+      sha: ${{ steps.pin.outputs.sha }}
+    steps:
+      - name: Install git, curl, ca-certificates and jq
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git curl ca-certificates jq
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: morzecrew/bundle-ci
+          ref: ${{ inputs.bundle-ci-ref }}
+          path: .bundle-ci
+          persist-credentials: false
+
+      # The workspace outlives the job on a self-hosted runner, owned by the
+      # runner's user, and git refuses it to this container's root.
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Install tools
+        run: bash .bundle-ci/scripts/tools.sh oras yq
+
+      - name: Log in to ghcr
+        env:
+          TOKEN: ${{ github.token }}
+          # Credentials stay under the runner's temporary directory, where the
+          # container's root home does not reach.
+          DOCKER_CONFIG: ${{ runner.temp }}/docker
+        run: |
+          mkdir -p "${DOCKER_CONFIG}"
+          printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          echo "DOCKER_CONFIG=${DOCKER_CONFIG}" >>"${GITHUB_ENV}"
+
+      # A push made with GITHUB_TOKEN starts no run of its own: the caller
+      # builds the commit in this run. A lost race starts over from the new main.
+      - name: Pin and commit
+        id: pin
+        env:
+          TOKEN: ${{ github.token }}
+          PIN_COMPONENTS: ${{ inputs.components }}
+          PIN_SCHEMA_IMAGE: ${{ inputs.schema-image }}
+          SCHEMA_LABEL: ${{ inputs.schema-label }}
+        run: |
+          auth=$(printf 'x-access-token:%s' "${TOKEN}" | base64 -w0)
+          echo "::add-mask::${auth}"
+          remote() { git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" "$@"; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # The component's commit when its image carries the OCI revision
+          # label, else the image's own digest. A multi-platform index has no
+          # config of its own; its linux/amd64 manifest does.
+          sha7() {
+            local labels rev digest
+            labels=$(oras manifest fetch-config "$1" 2>/dev/null \
+              || oras manifest fetch-config --platform linux/amd64 "$1" 2>/dev/null || true)
+            rev=$(printf '%s' "${labels}" \
+              | jq -r '(.config.Labels // {})["org.opencontainers.image.revision"] // empty' 2>/dev/null || true)
+            if [ -n "${rev}" ]; then
+              printf '%s' "${rev:0:7}"
+            else
+              digest=${1##*@sha256:}
+              printf '%s' "${digest:0:7}"
+            fi
+          }
+
+          join() { local IFS=,; printf '%s' "$*" | sed 's/,/, /g'; }
+
+          pushed=false
+          for attempt in 1 2 3 4 5; do
+            remote fetch --quiet origin main
+            git reset --quiet --hard FETCH_HEAD
+            bash .bundle-ci/scripts/pin.sh
+            if git diff --quiet -- bundle/manifest.yaml; then
+              echo "No component moved."
+              pushed=true
+              break
+            fi
+            names=()
+            shas=()
+            for key in ${PIN_COMPONENTS}; do
+              old=$(git show HEAD:bundle/manifest.yaml | yq -r ".images.${key}")
+              new=$(yq -r ".images.${key}" bundle/manifest.yaml)
+              [ "${old}" = "${new}" ] && continue
+              names+=("${key}")
+              shas+=("$(sha7 "${new}")")
+            done
+            message="⬆️ build(deps): bump $(join "${names[@]}") to $(join "${shas[@]}")"
+            git commit --quiet -m "${message}" -- bundle/manifest.yaml
+            if remote push --quiet origin HEAD:main; then
+              echo "Pushed: ${message}"
+              pushed=true
+              break
+            fi
+            echo "::warning::lost the race to main (attempt ${attempt}); re-resolving"
+          done
+          [ "${pushed}" = true ] || { echo "::error::could not push the pin to main"; exit 1; }
+          echo "sha=$(git rev-parse HEAD)" >>"${GITHUB_OUTPUT}"
+
+      # The steps above ran as root over the runner's mounted workspace, so
+      # its files are root's now; the runner's next job on the host could
+      # not clean them for its checkout. Hand them back to the runner's user.
+      - name: Hand the workspace back to the runner's user
+        if: always()
+        run: chown -R "$(stat -c %u:%g "${RUNNER_WORKSPACE}")" "${RUNNER_WORKSPACE}" "${RUNNER_TEMP}"

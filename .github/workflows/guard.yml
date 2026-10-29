@@ -1,0 +1,66 @@
+# A release's first job: refuse a tag that is not `vX.Y.Z` on the product's
+# main, and name the version it releases.
+name: guard
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: The runner label the job runs on
+        type: string
+        default: ubuntu-24.04
+    outputs:
+      version:
+        description: The version the tag releases, X.Y.Z
+        value: ${{ jobs.guard.outputs.version }}
+
+permissions: {}
+
+# A job container runs `run:` under sh unless told otherwise; the steps are
+# bash, as GitHub-hosted runners ran them (`bash -e {0}`, no pipefail).
+defaults:
+  run:
+    shell: bash -e {0}
+
+jobs:
+  guard:
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - name: Install git, curl, ca-certificates and jq
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git curl ca-certificates jq
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The workspace outlives the job on a self-hosted runner, owned by the
+      # runner's user, and git refuses it to this container's root.
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Refuse a tag that is not vX.Y.Z on main
+        id: tag
+        run: |
+          tag=${GITHUB_REF_NAME}
+          [ "${GITHUB_REF_TYPE}" = tag ] || { echo "::error::a release runs on a tag, not ${GITHUB_REF_TYPE} ${tag}"; exit 1; }
+          [[ ${tag} =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "::error::${tag} is not vX.Y.Z"; exit 1; }
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main \
+            || { echo "::error::${tag} does not point at a commit on main"; exit 1; }
+          echo "version=${tag#v}" >>"${GITHUB_OUTPUT}"
+
+      # The steps above ran as root over the runner's mounted workspace, so
+      # its files are root's now; the runner's next job on the host could
+      # not clean them for its checkout. Hand them back to the runner's user.
+      - name: Hand the workspace back to the runner's user
+        if: always()
+        run: chown -R "$(stat -c %u:%g "${RUNNER_WORKSPACE}")" "${RUNNER_WORKSPACE}" "${RUNNER_TEMP}"

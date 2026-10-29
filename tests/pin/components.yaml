@@ -1,0 +1,5 @@
+# What a release says of the components it ships, as a product commits it.
+backend:
+  rollback_safe: false
+frontend:
+  rollback_safe: false

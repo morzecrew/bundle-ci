@@ -1,0 +1,73 @@
+# Keep a product's bundle package inside the free plan's storage: the last
+# `keep` dev versions, which a dev VM may still roll back to, and untagged
+# versions for a day. `main`, `stable` and every X.Y.Z are never selected.
+name: retention
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: The runner label the job runs on
+        type: string
+        default: ubuntu-24.04
+      package:
+        description: The bundle package; empty is the product repository's name
+        type: string
+        default: ""
+      keep:
+        description: How many dev versions to keep
+        type: number
+        default: 5
+    secrets:
+      token:
+        description: A token that may delete the package's versions; GITHUB_TOKEN cannot
+        required: true
+
+permissions: {}
+
+# A job container runs `run:` under sh unless told otherwise; the steps are
+# bash, as GitHub-hosted runners ran them (`bash -e {0}`, no pipefail).
+defaults:
+  run:
+    shell: bash -e {0}
+
+jobs:
+  retention:
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+    # The package API is reached with the token secret, not GITHUB_TOKEN.
+    permissions: {}
+    steps:
+      - name: Name the package
+        id: package
+        env:
+          PACKAGE: ${{ inputs.package }}
+        run: echo "name=${PACKAGE:-${GITHUB_REPOSITORY#*/}}" >>"${GITHUB_OUTPUT}"
+
+      - name: Keep the last dev versions
+        uses: snok/container-retention-policy@4f22ef80902ad409ed55a99dc5133cc1250a0d03 # v3.0.0
+        with:
+          account: ${{ github.repository_owner }}
+          token: ${{ secrets.token }}
+          image-names: ${{ steps.package.outputs.name }}
+          image-tags: "*-dev.* !main !stable"
+          tag-selection: tagged
+          keep-n-most-recent: ${{ inputs.keep }}
+          cut-off: 1s
+
+      - name: Drop untagged versions after a day
+        uses: snok/container-retention-policy@4f22ef80902ad409ed55a99dc5133cc1250a0d03 # v3.0.0
+        with:
+          account: ${{ github.repository_owner }}
+          token: ${{ secrets.token }}
+          image-names: ${{ steps.package.outputs.name }}
+          tag-selection: untagged
+          cut-off: 1d
+
+      # The step above ran as root over the runner's mounted workspace, so
+      # its files are root's now; the runner's next job on the host could
+      # not clean them for its checkout. Hand them back to the runner's user.
+      - name: Hand the workspace back to the runner's user
+        if: always()
+        run: chown -R "$(stat -c %u:%g "${RUNNER_WORKSPACE}")" "${RUNNER_WORKSPACE}" "${RUNNER_TEMP}"

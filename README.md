@@ -212,6 +212,26 @@ sudo morzer --verbose task run repair
 
 A hook is the product's own code and runs as root; it never prints a secret.
 
+### Rehearsing on a workstation
+
+`scripts/rehearse.sh` runs what the smoke jobs prove, against the working
+tree: it installs a published bundle in a `<project>-rehearsal` rig, runs the
+smoke hooks, updates to the tree's `bundle/`, and rolls back. Run it from the
+product's root, with `oras` logged in to ghcr:
+
+```console
+git clone https://github.com/morzecrew/bundle-ci ~/bundle-ci
+cd <product>
+REHEARSE_PUBKEY="$(gh variable get MINISIGN_DEV_PUBKEY)" \
+REHEARSE_OPERATOR_SECRETS=admin_password \
+  bash ~/bundle-ci/scripts/rehearse.sh            # from the product's :main
+bash ~/bundle-ci/scripts/rehearse.sh --from <ref> # from another published bundle
+bash ~/bundle-ci/scripts/rehearse.sh --keep       # leave the rig for inspection
+```
+
+No credential enters the rig: the workstation's `oras` copies every image
+either manifest pins into it.
+
 ### Releasing a product
 
 A release promotes a dev build: it ships the component digests the dev channel

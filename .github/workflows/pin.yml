@@ -29,7 +29,7 @@ on:
       bundle-ci-ref:
         description: The bundle-ci ref whose scripts the job runs
         type: string
-        default: main # bundle-ci-ref: a release rewrites this to its tag
+        default: v0.1.1 # bundle-ci-ref: a release rewrites this to its tag
     outputs:
       sha:
         description: The product commit to build, the pin's or main's own

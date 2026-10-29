@@ -59,13 +59,13 @@ concurrency:
 jobs:
   pin:
     permissions: { contents: write, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.1.0
+    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.1.1
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: pin
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.0
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.1
     with:
       ref: ${{ needs.pin.outputs.sha }}
       channel: main
@@ -80,7 +80,7 @@ jobs:
     needs: [pin, bundle]
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.1.0
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.1.1
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -101,13 +101,13 @@ concurrency:
 jobs:
   guard:
     permissions: { contents: read }
-    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.1.0
+    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.1.1
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: guard
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.0
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.1
     with:
       ref: ${{ github.sha }}
       version: ${{ needs.guard.outputs.version }}
@@ -123,7 +123,7 @@ jobs:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.1.0
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.1.1
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -144,7 +144,7 @@ concurrency:
 jobs:
   bundle:
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.0
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.1
     with:
       ref: ${{ github.sha }}
       version: 0.0.0-pr.${{ github.event.pull_request.number }}
@@ -167,7 +167,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.1.0
+    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.1.1
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     secrets:
@@ -252,9 +252,15 @@ git tag vA.B.C <commit> && git push origin vA.B.C
 A called workflow cannot see its own ref, so each one checks bundle-ci out at
 `bundle-ci-ref`, whose default names the release. A release:
 
-1. sets every `default: ... # bundle-ci-ref:` line to the coming tag, in one
-   pull request (CI refuses defaults that differ);
-2. tags the merge commit `vX.Y.Z`.
+1. sets every `default: ... # bundle-ci-ref:` line to the coming tag, and seals
+   the CHANGELOG, in one pull request (CI refuses defaults that differ):
+
+   ```console
+   sed -i -E 's/^( +default: )[^ ]+( # bundle-ci-ref:)/\1vX.Y.Z\2/' .github/workflows/*.yml
+   ```
+
+2. tags the merge commit `vX.Y.Z`. CI fails on a tag whose defaults name
+   anything else; delete it and release again.
 
 A caller pinned to `@vX.Y.Z` then runs vX.Y.Z's scripts. To try an unreleased
 commit, call the workflows at that commit and pass `bundle-ci-ref` the same

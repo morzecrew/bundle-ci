@@ -7,6 +7,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ["v*"]
 
 permissions: {}
 
@@ -94,3 +95,10 @@ jobs:
           count=$(printf '%s\n' "${refs}" | grep -c .)
           [ "${count}" -eq 1 ] || { echo "::error::bundle-ci-ref defaults differ: ${refs//$'\n'/, }"; exit 1; }
           echo "bundle-ci-ref default: ${refs}"
+          # A release tag's defaults must name it, or a caller pinned to the
+          # tag runs another ref's scripts. Delete such a tag and cut a release
+          # whose pull request set them.
+          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${refs}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} carries bundle-ci-ref default ${refs}, not ${GITHUB_REF_NAME}"
+            exit 1
+          fi

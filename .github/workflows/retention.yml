@@ -46,7 +46,7 @@ jobs:
         run: echo "name=${PACKAGE:-${GITHUB_REPOSITORY#*/}}" >>"${GITHUB_OUTPUT}"
 
       - name: Keep the last dev versions
-        uses: snok/container-retention-policy@4f22ef80902ad409ed55a99dc5133cc1250a0d03 # v3.0.0
+        uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53 # v3.1.0
         with:
           account: ${{ github.repository_owner }}
           token: ${{ secrets.token }}
@@ -57,7 +57,7 @@ jobs:
           cut-off: 1s
 
       - name: Drop untagged versions after a day
-        uses: snok/container-retention-policy@4f22ef80902ad409ed55a99dc5133cc1250a0d03 # v3.0.0
+        uses: snok/container-retention-policy@d3bdcf5ce9b05f685154e4a16c39233b245e3d53 # v3.1.0
         with:
           account: ${{ github.repository_owner }}
           token: ${{ secrets.token }}

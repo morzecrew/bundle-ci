@@ -252,9 +252,15 @@ git tag vA.B.C <commit> && git push origin vA.B.C
 A called workflow cannot see its own ref, so each one checks bundle-ci out at
 `bundle-ci-ref`, whose default names the release. A release:
 
-1. sets every `default: ... # bundle-ci-ref:` line to the coming tag, in one
-   pull request (CI refuses defaults that differ);
-2. tags the merge commit `vX.Y.Z`.
+1. sets every `default: ... # bundle-ci-ref:` line to the coming tag, and seals
+   the CHANGELOG, in one pull request (CI refuses defaults that differ):
+
+   ```console
+   sed -i -E 's/^( +default: )[^ ]+( # bundle-ci-ref:)/\1vX.Y.Z\2/' .github/workflows/*.yml
+   ```
+
+2. tags the merge commit `vX.Y.Z`. CI fails on a tag whose defaults name
+   anything else; delete it and release again.
 
 A caller pinned to `@vX.Y.Z` then runs vX.Y.Z's scripts. To try an unreleased
 commit, call the workflows at that commit and pass `bundle-ci-ref` the same

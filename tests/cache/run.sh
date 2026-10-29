@@ -81,13 +81,18 @@ cat >"${bin}/docker" <<'EOF'
 #!/usr/bin/env bash
 echo "docker $*" >>"${LOG}"
 cat >/dev/null
+left=$(cat "${DOCKER_FAIL}" 2>/dev/null || echo 0)
+if [ "${left}" -gt 0 ]; then
+	echo $((left - 1)) >"${DOCKER_FAIL}"
+	exit 1
+fi
 EOF
 cat >"${bin}/sleep" <<'EOF'
 #!/usr/bin/env bash
 EOF
 chmod +x "${bin}"/*
 
-export LOG=${work}/log FAIL=${work}/fail
+export LOG=${work}/log FAIL=${work}/fail DOCKER_FAIL=${work}/docker-fail
 export PATH="${bin}:${PATH}"
 cache=${work}/cache
 hex=$(printf 'a%.0s' {1..64})
@@ -157,11 +162,31 @@ case "${out}" in
 *) fail "it warns: ${out}" ;;
 esac
 expect "no entry" no "$([ -e "${cache}/ghcr.io/acme/demo-gone/${hex}" ] && echo yes || echo no)"
-expect "no temporary directory" 0 "$(find "${cache}" -maxdepth 1 -name '.fill.*' | wc -l | tr -d ' ')"
+expect "no temporary directory" 0 "$(find "${cache}" -name '.fill.*' | wc -l | tr -d ' ')"
 
 echo "# load loads what is cached, and only that"
 run load "${cache}" a-rig "${pin}" "ghcr.io/acme/demo-gone@sha256:${hex}" >/dev/null
 expect "one load" 1 "$(grep -c 'docker exec -i a-rig docker load' "${LOG}")"
+
+echo "# a load that fails twice is left to the rig"
+echo 2 >"${DOCKER_FAIL}"
+if out=$(run load "${cache}" a-rig "${pin}" 2>&1); then
+	ok "load still succeeds"
+else
+	fail "load still succeeds: ${out}"
+fi
+expect "two attempts" 2 "$(grep -c 'docker exec -i a-rig docker load' "${LOG}")"
+case "${out}" in
+*"::warning::"*"could not load ghcr.io/acme/demo-backend"*) ok "it warns" ;;
+*) fail "it warns: ${out}" ;;
+esac
+echo 1 >"${DOCKER_FAIL}"
+run load "${cache}" a-rig "${pin}" >/dev/null 2>&1
+expect "one failure, then loaded" 2 "$(grep -c 'docker exec -i a-rig docker load' "${LOG}")"
+
+if command -v flock >/dev/null 2>&1; then
+	expect "a fill leaves the entry's lock beside it" yes "$([ -f "${entry}.lock" ] && echo yes || echo no)"
+fi
 
 echo "# prune drops what nothing used for its days"
 echo 0 >"${FAIL}"
@@ -169,9 +194,13 @@ run fill "${cache}" "ghcr.io/acme/demo-old@sha256:${other}" >/dev/null
 touch -d '20 days ago' "${cache}/ghcr.io/acme/demo-old/${other}"
 mkdir -p "${cache}/.fill.abandoned"
 touch -d '20 days ago' "${cache}/.fill.abandoned"
+old_lock=${cache}/ghcr.io/acme/demo-old/${other}.lock
+: >"${old_lock}"
+touch -d '20 days ago' "${old_lock}"
 run prune "${cache}" 14
 expect "the old entry goes" no "$([ -e "${cache}/ghcr.io/acme/demo-old" ] && echo yes || echo no)"
 expect "the abandoned fill goes" no "$([ -e "${cache}/.fill.abandoned" ] && echo yes || echo no)"
+expect "its old lock goes" no "$([ -e "${old_lock}" ] && echo yes || echo no)"
 expect "a recent entry stays" yes "$([ -f "${entry}/index.json" ] && echo yes || echo no)"
 
 echo "# a pin that is not repo@digest is refused"

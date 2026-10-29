@@ -85,47 +85,81 @@ copy_pin() {
 	esac
 }
 
+# Fill one entry, ENTRY for NAME; the caller holds its lock.
+fill_one() {
+	local tmp attempt copied=false
+	if [ -f "${ENTRY}/index.json" ]; then
+		touch "${ENTRY}"
+		echo "image-cache.sh: cached ${NAME}"
+		return 0
+	fi
+	for attempt in 1 2 3 4; do
+		tmp=$(mktemp -d "$(dirname "${ENTRY}")/.fill.XXXXXX")
+		if copy_pin "${tmp}"; then
+			copied=true
+			break
+		fi
+		rm -rf "${tmp}"
+		[ "${attempt}" -lt 4 ] || break
+		echo "image-cache.sh: copying ${NAME} failed (attempt ${attempt}); retrying in $((attempt * 15))s" >&2
+		sleep $((attempt * 15))
+	done
+	if ! "${copied}"; then
+		echo "::warning::image-cache.sh: could not copy ${NAME}; the rig pulls it itself"
+		return 0
+	fi
+	# A runner without flock lets two jobs copy one entry; the second's
+	# rename then fails, and the first's copy is as good.
+	if mv -T "${tmp}" "${ENTRY}" 2>/dev/null; then
+		echo "image-cache.sh: copied ${NAME}"
+	else
+		rm -rf "${tmp}"
+		touch "${ENTRY}"
+		echo "image-cache.sh: cached ${NAME}"
+	fi
+}
+
 fill() {
-	local dir=$1 pin tmp attempt copied
+	local dir=$1 pin
 	shift
 	mkdir -p "${dir}"
 	for pin in "$@"; do
 		entry_of "${dir}" "${pin}"
-		if [ -f "${ENTRY}/index.json" ]; then
-			touch "${ENTRY}"
-			echo "image-cache.sh: cached ${NAME}"
-			continue
-		fi
 		mkdir -p "$(dirname "${ENTRY}")"
-		copied=false
-		for attempt in 1 2 3 4; do
-			tmp=$(mktemp -d "${dir}/.fill.XXXXXX")
-			if copy_pin "${tmp}"; then
-				copied=true
-				break
-			fi
-			rm -rf "${tmp}"
-			[ "${attempt}" -lt 4 ] || break
-			echo "image-cache.sh: copying ${NAME} failed (attempt ${attempt}); retrying in $((attempt * 15))s" >&2
-			sleep $((attempt * 15))
-		done
-		if ! "${copied}"; then
-			echo "::warning::image-cache.sh: could not copy ${NAME}; the rig pulls it itself"
-			continue
-		fi
-		# Another job may have filled the entry meanwhile; its copy is as good.
-		if mv -T "${tmp}" "${ENTRY}" 2>/dev/null; then
-			echo "image-cache.sh: copied ${NAME}"
+		# One job copies an entry while another sharing the runner's disk
+		# waits for it, and then finds it cached rather than copying it twice.
+		if command -v flock >/dev/null 2>&1; then
+			(
+				flock 9
+				fill_one
+			) 9>"${ENTRY}.lock"
 		else
-			rm -rf "${tmp}"
-			touch "${ENTRY}"
-			echo "image-cache.sh: cached ${NAME}"
+			fill_one
 		fi
 	done
 }
 
+# Load one entry into the rig, tried twice: a load that fails leaves the image
+# to the rig's own pull, with a warning.
+load_one() {
+	local entry=$1 name=$2 rig=$3 attempt args=()
+	# An index's entry holds one platform's layers: load that platform.
+	[ ! -f "${entry}/platform" ] || args=(--platform "$(cat "${entry}/platform")")
+	for attempt in 1 2; do
+		if tar -C "${entry}" -cf - oci-layout index.json blobs \
+			| bash "${self_dir}/rig.sh" exec "${rig}" docker load ${args[@]+"${args[@]}"} >/dev/null; then
+			echo "image-cache.sh: loaded ${name}"
+			return 0
+		fi
+		echo "image-cache.sh: loading ${name} failed (attempt ${attempt})" >&2
+	done
+	echo "::warning::image-cache.sh: could not load ${name}; the rig pulls it itself"
+}
+
+# Every image at once: loading is mostly unpacking layers, and one image's
+# does not wait for another's.
 load() {
-	local dir=$1 rig=$2 pin
+	local dir=$1 rig=$2 pin pids=() pid
 	shift 2
 	for pin in "$@"; do
 		entry_of "${dir}" "${pin}"
@@ -134,12 +168,11 @@ load() {
 			continue
 		fi
 		touch "${ENTRY}"
-		# An index's entry holds one platform's layers: load that platform.
-		local args=()
-		[ ! -f "${ENTRY}/platform" ] || args=(--platform "$(cat "${ENTRY}/platform")")
-		tar -C "${ENTRY}" -cf - oci-layout index.json blobs \
-			| bash "${self_dir}/rig.sh" exec "${rig}" docker load ${args[@]+"${args[@]}"} >/dev/null
-		echo "image-cache.sh: loaded ${NAME}"
+		load_one "${ENTRY}" "${NAME}" "${rig}" &
+		pids+=("$!")
+	done
+	for pid in ${pids[@]+"${pids[@]}"}; do
+		wait "${pid}"
 	done
 }
 
@@ -147,9 +180,11 @@ prune() {
 	local dir=$1 days=$2
 	[[ ${days} =~ ^[0-9]+$ ]] || die "prune takes a number of days, not '${days}'"
 	[ -d "${dir}" ] || return 0
-	# Entries are directories named by a digest's 64 hex digits; a fill that
-	# died midway left a `.fill.*` directory.
-	find "${dir}" -mindepth 1 -type d \( -regextype posix-extended -regex '.*/[0-9a-f]{64}' -o -name '.fill.*' \) \
+	# Entries are directories named by a digest's 64 hex digits, each with a
+	# `.lock` beside it; a fill that died midway left a `.fill.*` directory.
+	find "${dir}" -mindepth 1 -regextype posix-extended \( \
+		\( -type d \( -regex '.*/[0-9a-f]{64}' -o -name '.fill.*' \) \) \
+		-o \( -type f -regex '.*/[0-9a-f]{64}\.lock' \) \) \
 		-mtime "+${days}" -prune -exec rm -rf {} +
 	find "${dir}" -mindepth 1 -type d -empty -delete
 }

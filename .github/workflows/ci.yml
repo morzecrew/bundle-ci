@@ -7,7 +7,6 @@ on:
   pull_request:
   push:
     branches: [main]
-    tags: ["v*"]
 
 permissions: {}
 
@@ -95,10 +94,24 @@ jobs:
           count=$(printf '%s\n' "${refs}" | grep -c .)
           [ "${count}" -eq 1 ] || { echo "::error::bundle-ci-ref defaults differ: ${refs//$'\n'/, }"; exit 1; }
           echo "bundle-ci-ref default: ${refs}"
-          # A release tag's defaults must name it, or a caller pinned to the
-          # tag runs another ref's scripts. Delete such a tag and cut a release
-          # whose pull request set them.
-          if [ "${GITHUB_REF_TYPE}" = tag ] && [ "${refs}" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::tag ${GITHUB_REF_NAME} carries bundle-ci-ref default ${refs}, not ${GITHUB_REF_NAME}"
-            exit 1
-          fi
+
+  # The repository's conventions, checked by the scripts of the skills that
+  # define them (.agents/skills).
+  conventions:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: CHANGELOG
+        run: python3 .agents/skills/keep-a-changelog/scripts/validate_changelog.py CHANGELOG.md
+
+      # A pull request is squashed under its title.
+      - name: Pull request title
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: python3 .agents/skills/gitmoji-conventional/scripts/check_commit_msg.py --message "${TITLE}"

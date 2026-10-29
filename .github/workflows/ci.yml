@@ -118,3 +118,21 @@ jobs:
         env:
           TITLE: ${{ github.event.pull_request.title }}
         run: python3 .agents/skills/gitmoji-conventional/scripts/check_commit_msg.py --message "${TITLE}"
+
+  # component-image.yml, called as a component repository calls it, on a
+  # pull request alone: it plans, and builds tests/component when its paths
+  # changed, and pushes nothing. The grants are its jobs' ceilings; on a pull
+  # request nothing writes.
+  component-image:
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: read
+    uses: ./.github/workflows/component-image.yml # zizmor: ignore[self-repository] -- actionlint reads only ./
+    with:
+      component: selftest
+      images: >-
+        [{"name": "selftest", "image": "bundle-ci-selftest", "context": "tests/component",
+          "file": "tests/component/Dockerfile", "build-arg-prefix": "APP__",
+          "paths": ["tests/component/**", ".github/workflows/component-image.yml"]}]

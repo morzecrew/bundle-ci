@@ -1,0 +1,56 @@
+# Keep a component repository's packages inside the free plan's storage: the
+# last `keep` commit builds (`sha-*`), which an older dev bundle may still
+# install, and the one newest untagged version, both after a day. A version
+# that also carries `main`, an `X.Y.Z` or a release's `bundle-X.Y.Z` is never
+# deleted: snok/container-retention-policy v3 deletes a version only when
+# every tag it carries matches the filter.
+name: component-retention
+
+on:
+  workflow_call:
+    inputs:
+      images:
+        description: The component's packages, space-separated, such as `demo-backend demo-migrations`
+        type: string
+        required: true
+      keep:
+        description: How many commit builds to keep per package
+        type: number
+        default: 3
+      runs-on:
+        description: The runner label the job runs on
+        type: string
+        default: ubuntu-24.04
+    secrets:
+      token:
+        description: A token that may delete the packages' versions; GITHUB_TOKEN cannot
+        required: true
+
+permissions: {}
+
+jobs:
+  retention:
+    runs-on: ${{ inputs.runs-on }}
+    # The package API is reached with the token secret, not GITHUB_TOKEN.
+    permissions: {}
+    steps:
+      - name: Delete superseded builds
+        uses: snok/container-retention-policy@4f22ef80902ad409ed55a99dc5133cc1250a0d03 # v3.0.0
+        with:
+          account: ${{ github.repository_owner }}
+          token: ${{ secrets.token }}
+          image-names: ${{ inputs.images }}
+          tag-selection: untagged
+          keep-n-most-recent: 1
+          cut-off: 1d
+
+      - name: Delete old commit builds
+        uses: snok/container-retention-policy@4f22ef80902ad409ed55a99dc5133cc1250a0d03 # v3.0.0
+        with:
+          account: ${{ github.repository_owner }}
+          token: ${{ secrets.token }}
+          image-names: ${{ inputs.images }}
+          image-tags: "sha-*"
+          tag-selection: tagged
+          keep-n-most-recent: ${{ inputs.keep }}
+          cut-off: 1d

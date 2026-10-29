@@ -3,7 +3,9 @@
 The CI pipeline of a [morzer](https://github.com/morzecrew/morzer) bundle
 repository, as reusable workflows: pin the component images, build, sign and
 smoke-test the bundle in a Docker-in-Docker rig, and publish it to ghcr behind
-a `:main` dev channel and a `:stable` release channel.
+a `:main` dev channel and a `:stable` release channel. The component
+repositories behind a bundle build and keep their images with it too
+([below](#a-component-repository)).
 
 A product repository keeps its bundle, a few thin workflows that call these,
 and whatever only it checks. Everything else lives here, once.
@@ -59,13 +61,13 @@ concurrency:
 jobs:
   pin:
     permissions: { contents: write, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.1.2
+    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.2.0
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: pin
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.2
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.2.0
     with:
       ref: ${{ needs.pin.outputs.sha }}
       channel: main
@@ -80,7 +82,7 @@ jobs:
     needs: [pin, bundle]
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.1.2
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.2.0
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -101,13 +103,13 @@ concurrency:
 jobs:
   guard:
     permissions: { contents: read }
-    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.1.2
+    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.2.0
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: guard
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.2
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.2.0
     with:
       ref: ${{ github.sha }}
       version: ${{ needs.guard.outputs.version }}
@@ -123,7 +125,7 @@ jobs:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.1.2
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.2.0
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -144,7 +146,7 @@ concurrency:
 jobs:
   bundle:
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.1.2
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.2.0
     with:
       ref: ${{ github.sha }}
       version: 0.0.0-pr.${{ github.event.pull_request.number }}
@@ -167,7 +169,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.1.2
+    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.2.0
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     secrets:
@@ -246,6 +248,86 @@ product repository to hold the **Write** role under each component package's
 ```console
 git tag vA.B.C <commit> && git push origin vA.B.C
 ```
+
+## A component repository
+
+A repository whose images a bundle pins calls two workflows:
+
+| Workflow | Job | Needs |
+|---|---|---|
+| `component-image.yml` | build the images whose paths changed; on `main` push `main` and `sha-<commit>` and tell the bundle repository; on a `vX.Y.Z` tag push `X.Y.Z` and create the GitHub release from the CHANGELOG; on a pull request build only | `contents: write`, `packages: write`, `pull-requests: read` |
+| `component-retention.yml` | keep the last commit builds and the newest untagged version | a token secret that may delete package versions |
+
+```yaml
+# .github/workflows/build-and-push.yml
+name: build-and-push
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  images:
+    permissions: { contents: write, packages: write, pull-requests: read }
+    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.2.0
+    with:
+      component: backend
+      bundle-repo: demo-standalone
+      schema-label: tech.morze.demo.schema
+      images: >-
+        [
+          {"name": "backend", "image": "demo-backend", "context": ".", "file": "containers/app/Dockerfile",
+           "build-arg-prefix": "APP__", "paths": ["app/**", "containers/app/**", ".github/workflows/build-and-push.yml"]},
+          {"name": "migrations", "image": "demo-migrations", "context": ".", "file": "containers/flyway/Dockerfile",
+           "target": "sql", "paths": ["db/**", "containers/flyway/**", ".github/workflows/build-and-push.yml"]}
+        ]
+      runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+      app-id: ${{ vars.RELEASE_BOT_APP_ID }}
+    secrets:
+      app-private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+```
+
+```yaml
+# .github/workflows/retention-policy.yaml
+name: retention
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  retention:
+    permissions: {}
+    uses: morzecrew/bundle-ci/.github/workflows/component-retention.yml@v0.2.0
+    with:
+      images: demo-backend demo-migrations
+      runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    secrets:
+      token: ${{ secrets.GH_PAT }}
+```
+
+`component-image.yml`'s inputs:
+
+| Input | Default | |
+|---|---|---|
+| `images` | — | a JSON array of `{name, image, context, file, target?, build-arg-prefix?, paths}`. `image` is the package under the repository's owner; `paths` are the globs whose change rebuilds it; `build-arg-prefix` names the build args `<prefix>VERSION` (`main` or `X.Y.Z`), `<prefix>BUILD_ID` (the short sha) and `<prefix>GIT_SHA` |
+| `component` | — | its name in the dispatch the bundle repository receives |
+| `bundle-repo` | — | the bundle repository under the same owner to tell when `main` moves |
+| `schema-label`, `schema-dir` | —, `db/migrations/postgres` | a label every image carries with the highest versioned migration in `schema-dir` (`<n>__*.sql`), the schema a bundle declares |
+| `tag-version-command` | — | a command printing the version a release tag must name, such as `jq -r .version package.json` |
+| `platforms` | `linux/amd64` | what to build for |
+| `app-id` | — | the GitHub App whose token dispatches to the bundle repository; without it the bundle picks the images up on its schedule |
+
+The images are plain manifests (`provenance: false`): an attestation would
+wrap one in an index whose entries are untagged, which the untagged rule would
+delete from under the tag. A component's own release (`vX.Y.Z`) is optional: a
+bundle release promotes the `main` builds its dev channel ran.
 
 ## Releasing bundle-ci
 

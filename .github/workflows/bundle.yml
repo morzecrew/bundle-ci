@@ -382,7 +382,7 @@ jobs:
           mkdir -p "${DOCKER_CONFIG}"
           BIN_DIR="${RUNNER_TEMP}/bin" bash .bundle-ci/scripts/tools.sh oras yq
           printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-          cache="${HOME}/.cache/bundle-ci/images"
+          cache="${HOME}/.cache/bundle-ci/oci"
           mapfile -t pins < <(bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh pins "/rig/dist/${ARCHIVE}")
           bash .bundle-ci/scripts/image-cache.sh fill "${cache}" "${pins[@]}"
           bash .bundle-ci/scripts/image-cache.sh load "${cache}" "${RIG}" "${pins[@]}"
@@ -554,7 +554,7 @@ jobs:
           mkdir -p "${DOCKER_CONFIG}"
           BIN_DIR="${RUNNER_TEMP}/bin" bash .bundle-ci/scripts/tools.sh oras yq
           printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-          cache="${HOME}/.cache/bundle-ci/images"
+          cache="${HOME}/.cache/bundle-ci/oci"
           mapfile -t pins < <(
             for archive in "/rig/published/$(basename "${PUBLISHED}")" "/rig/dist/${ARCHIVE}"; do
               bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh pins "${archive}"

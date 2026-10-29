@@ -202,11 +202,15 @@ of its time, over a link that drops connections. On a self-hosted runner each
 smoke job instead:
 
 1. lists the archive's pins in the rig (`smoke.sh pins`);
-2. copies each one the runner has not seen into `~/.cache/bundle-ci/images`, an
-   OCI layout per repository and digest, with `oras` and up to 4 tries;
-3. loads every cached pin into the rig. Named `repo@sha256:<hex>`, a loaded image
-   answers `docker image inspect <pin>`, so neither `smoke.sh` nor morzer pulls
-   it;
+2. copies each one the runner has not seen into `~/.cache/bundle-ci/oci`, an
+   OCI layout per repository and digest, with `oras` and up to 4 tries. For a
+   multi-platform index it keeps the index and every manifest it lists, but only
+   `linux/amd64`'s layers (`IMAGE_CACHE_PLATFORM`), half of what a full copy
+   would hold;
+3. loads every cached pin into the rig, an index's for its one platform. Named
+   `repo@sha256:<hex>`, a loaded image answers `docker image inspect <pin>`, and
+   `docker create --pull never <pin>` uses it, so neither `smoke.sh` nor morzer
+   pulls it;
 4. prunes entries no job used for 14 days.
 
 A copy that fails 4 times is left to the rig's own retried pull: the cache makes

@@ -9,10 +9,14 @@
 #   image-cache.sh prune <dir> <days>          drop entries unused for <days>
 #
 # A pin is `repo[:tag]@sha256:<hex>`, and its entry `<dir>/<repo>/<hex>`: an OCI
-# layout whose one manifest is named `repo@sha256:<hex>`. A containerd image
+# layout whose one descriptor is named `repo@sha256:<hex>`. A containerd image
 # store (Docker 29's default, the rig's) gives a loaded image that name, and
 # `docker image inspect <pin>` then finds it, so neither smoke.sh nor morzer
-# pulls it again.
+# pulls it again. The daemon finds it by the digest only when the pinned
+# manifest itself is there: for a multi-platform index, the entry holds the
+# index and every manifest it lists, but only IMAGE_CACHE_PLATFORM's layers
+# (default linux/amd64), and `load` loads that platform -- the other platforms'
+# layers would double what a rig loads, for nothing.
 #
 # `fill` copies with oras through a temporary directory and renames it into
 # place, so two jobs filling one runner's cache never see half an entry. A copy
@@ -24,6 +28,7 @@
 set -euo pipefail
 
 self_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+platform=${IMAGE_CACHE_PLATFORM:-linux/amd64}
 
 die() {
 	echo "image-cache.sh: $*" >&2
@@ -43,6 +48,43 @@ entry_of() {
 	ENTRY=${dir}/${repo}/${digest#sha256:}
 }
 
+# Copy NAME into the empty layout directory $1.
+copy_pin() {
+	local tmp=$1 descriptor media hex child blobs=$1/blobs/sha256 repo=${NAME%@*}
+	descriptor=$(oras manifest fetch --descriptor "${NAME}") || return 1
+	media=$(yq -p json -o yaml '.mediaType' <<<"${descriptor}")
+	case "${media}" in
+	*image.index* | *manifest.list*)
+		oras copy --platform "${platform}" --to-oci-layout "${NAME}" "${tmp}:pin" >/dev/null || return 1
+		hex=${NAME##*@sha256:}
+		oras manifest fetch "${NAME}" --output "${blobs}/${hex}" || return 1
+		echo "${hex}  ${blobs}/${hex}" | sha256sum -c - >/dev/null || return 1
+		for child in $(yq -p json -o yaml '.manifests[].digest' "${blobs}/${hex}"); do
+			[ -f "${blobs}/${child#sha256:}" ] \
+				|| oras manifest fetch "${repo}@${child}" --output "${blobs}/${child#sha256:}" || return 1
+		done
+		MEDIA=${media} SIZE=$(stat -c %s "${blobs}/${hex}") IMAGE=${NAME} yq -n -o json '{
+			"schemaVersion": 2,
+			"mediaType": "application/vnd.oci.image.index.v1+json",
+			"manifests": [{
+				"mediaType": strenv(MEDIA),
+				"digest": (strenv(IMAGE) | sub(".*@", "")),
+				"size": (strenv(SIZE) | tonumber),
+				"annotations": {"io.containerd.image.name": strenv(IMAGE), "org.opencontainers.image.ref.name": "pin"}}]}' \
+			>"${tmp}/index.json"
+		printf '%s\n' "${platform}" >"${tmp}/platform"
+		;;
+	*)
+		oras copy --to-oci-layout "${NAME}" "${tmp}:pin" >/dev/null || return 1
+		# oras lists the platform manifests it copied beside the tagged one;
+		# named too, the last would take the name from it.
+		IMAGE=${NAME} yq -i -p json -o json '
+			.manifests |= map(select(.annotations."org.opencontainers.image.ref.name" == "pin")) |
+			.manifests[0].annotations."io.containerd.image.name" = strenv(IMAGE)' "${tmp}/index.json"
+		;;
+	esac
+}
+
 fill() {
 	local dir=$1 pin tmp attempt copied
 	shift
@@ -55,27 +97,22 @@ fill() {
 			continue
 		fi
 		mkdir -p "$(dirname "${ENTRY}")"
-		tmp=$(mktemp -d "${dir}/.fill.XXXXXX")
 		copied=false
 		for attempt in 1 2 3 4; do
-			if oras copy --to-oci-layout "${NAME}" "${tmp}:pin" >/dev/null; then
+			tmp=$(mktemp -d "${dir}/.fill.XXXXXX")
+			if copy_pin "${tmp}"; then
 				copied=true
 				break
 			fi
+			rm -rf "${tmp}"
 			[ "${attempt}" -lt 4 ] || break
 			echo "image-cache.sh: copying ${NAME} failed (attempt ${attempt}); retrying in $((attempt * 15))s" >&2
 			sleep $((attempt * 15))
 		done
 		if ! "${copied}"; then
 			echo "::warning::image-cache.sh: could not copy ${NAME}; the rig pulls it itself"
-			rm -rf "${tmp}"
 			continue
 		fi
-		# oras lists the platform manifests it copied beside the tagged one;
-		# named too, the last would take the name from it.
-		IMAGE=${NAME} yq -i -p json -o json '
-			.manifests |= map(select(.annotations."org.opencontainers.image.ref.name" == "pin")) |
-			.manifests[0].annotations."io.containerd.image.name" = strenv(IMAGE)' "${tmp}/index.json"
 		# Another job may have filled the entry meanwhile; its copy is as good.
 		if mv -T "${tmp}" "${ENTRY}" 2>/dev/null; then
 			echo "image-cache.sh: copied ${NAME}"
@@ -97,8 +134,11 @@ load() {
 			continue
 		fi
 		touch "${ENTRY}"
+		# An index's entry holds one platform's layers: load that platform.
+		local args=()
+		[ ! -f "${ENTRY}/platform" ] || args=(--platform "$(cat "${ENTRY}/platform")")
 		tar -C "${ENTRY}" -cf - oci-layout index.json blobs \
-			| bash "${self_dir}/rig.sh" exec "${rig}" docker load >/dev/null
+			| bash "${self_dir}/rig.sh" exec "${rig}" docker load ${args[@]+"${args[@]}"} >/dev/null
 		echo "image-cache.sh: loaded ${NAME}"
 	done
 }

@@ -1,0 +1,16 @@
+# Every action the workflows use is pinned by commit; Dependabot proposes the
+# next commit, with its version comment, once a week in one pull request.
+# The tools scripts/tools.sh installs and the images rig.sh and the job
+# containers run are pinned by checksum or digest by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "⬆️ build"
+      include: scope

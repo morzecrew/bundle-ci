@@ -119,6 +119,33 @@ case "${out}" in
 esac
 expect "morzer never runs" 0 "$(grep -c '^morzer' "${work}/log")"
 
+echo "# probe"
+cat >"${bin}/curl" <<'EOF'
+#!/usr/bin/env bash
+echo "curl ${*: -1}" >>"${LOG}"
+EOF
+chmod +x "${bin}/curl"
+probe() { # probe [paths]; unset with no argument
+	: >"${work}/log"
+	if [ $# -eq 0 ]; then
+		env -u SMOKE_PROBE_PATHS LOG="${work}/log" SMOKE_ENV=/dev/null PATH="${bin}:${PATH}" \
+			bash "${repo}/scripts/smoke.sh" probe
+	else
+		LOG="${work}/log" SMOKE_ENV=/dev/null SMOKE_PROBE_PATHS="$1" PATH="${bin}:${PATH}" \
+			bash "${repo}/scripts/smoke.sh" probe
+	fi
+}
+probe >/dev/null
+expect "unset, it asks the default paths" "curl http://127.0.0.1:8081/__platform_healthz curl http://127.0.0.1:8081/health" "$(tr '\n' ' ' <"${work}/log" | sed 's/ $//')"
+probe "/ready" >/dev/null
+expect "it asks the paths given" "curl http://127.0.0.1:8081/ready" "$(cat "${work}/log")"
+out=$(probe "")
+expect "empty, it asks nothing" 0 "$(wc -l <"${work}/log" | tr -d ' ')"
+case "${out}" in
+*"no probe paths"*) ok "and says so" ;;
+*) fail "and says so: ${out}" ;;
+esac
+
 if [ "${failures}" -ne 0 ]; then
 	echo "${failures} check(s) failed" >&2
 	exit 1

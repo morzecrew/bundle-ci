@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "gitmoji-conventional": {
+      "source": "morzecrew/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/gitmoji-conventional/SKILL.md",
+      "computedHash": "066050ab64d99d4517e4b7a51521ce7319f4d7c3d5ab0cc5bcb86b8a45a8fea7"
+    },
+    "keep-a-changelog": {
+      "source": "morzecrew/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/keep-a-changelog/SKILL.md",
+      "computedHash": "e9a3f0a4f211d7c32335b5d12dd6efb81f5010881e792f1012776659a80d14f3"
+    }
+  }
+}

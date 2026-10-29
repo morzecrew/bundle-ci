@@ -259,8 +259,10 @@ A called workflow cannot see its own ref, so each one checks bundle-ci out at
    sed -i -E 's/^( +default: )[^ ]+( # bundle-ci-ref:)/\1vX.Y.Z\2/' .github/workflows/*.yml
    ```
 
-2. tags the merge commit `vX.Y.Z`. CI fails on a tag whose defaults name
-   anything else; delete it and release again.
+2. tags the merge commit `vX.Y.Z`. `release.yml` refuses a tag that is not on
+   `main` or whose defaults name anything else (delete it and release again),
+   and otherwise creates the GitHub release with the version's CHANGELOG
+   section as its notes.
 
 A caller pinned to `@vX.Y.Z` then runs vX.Y.Z's scripts. To try an unreleased
 commit, call the workflows at that commit and pass `bundle-ci-ref` the same
@@ -273,6 +275,11 @@ bash tests/pin/run.sh       # needs mikefarah's yq
 bash tests/version/run.sh
 shellcheck -x scripts/*.sh tests/*/*.sh
 ```
+
+Commits and pull request titles follow `gitmoji-conventional`, and CHANGELOG
+entries `keep-a-changelog`: the skills are in `.agents/skills` (`.claude/skills`
+links there), installed with `npx skills` and recorded in `skills-lock.json`,
+and CI runs their checkers.
 
 This repository is public. Its own CI runs on GitHub-hosted runners only, and
 nothing here names a private repository or image: every product name arrives as

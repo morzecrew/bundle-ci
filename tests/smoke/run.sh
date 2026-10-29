@@ -7,9 +7,10 @@
 #   bash tests/smoke/run.sh
 #
 # It checks that every image the archive's manifest pins by digest is pulled
-# once before morzer runs, and nothing else; that a pull which fails is tried
-# again until it succeeds; and that one which fails 4 times stops the update
-# before morzer runs.
+# once before morzer runs, and nothing else; that an image already present is
+# not; that `pins` lists them; that a pull which fails is tried again until it
+# succeeds; and that one which fails 4 times stops the update before morzer
+# runs.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -48,6 +49,11 @@ cat >"${bin}/docker" <<'EOF'
 #!/usr/bin/env bash
 ref=${*: -1}
 echo "docker $*" >>"${LOG}"
+# An image is present only when CACHED names it.
+if [ "$1" = image ] && [ "$2" = inspect ]; then
+	grep -qxF "${ref}" "${CACHED}" 2>/dev/null
+	exit
+fi
 left=$(sed -n "s|^${ref} ||p" "${FAIL_PULLS}" 2>/dev/null | sed -n 1p)
 if [ -n "${left}" ] && [ "${left}" -gt 0 ]; then
 	sed -i "s|^${ref} .*|${ref} $((left - 1))|" "${FAIL_PULLS}"
@@ -66,12 +72,14 @@ chmod +x "${bin}"/*
 backend=$(yq -r '.images.backend' "${repo}/tests/pin/manifest.yaml" 2>/dev/null \
 	|| sed -n 's/^  backend: //p' "${repo}/tests/pin/manifest.yaml")
 
-update() { # update <fail spec>
+update() { # update <fail spec> [cached ref]
 	LOG=${work}/log
 	FAIL_PULLS=${work}/fail
+	CACHED=${work}/cached
 	: >"${LOG}"
 	printf '%s' "$1" >"${FAIL_PULLS}"
-	LOG=${LOG} FAIL_PULLS=${FAIL_PULLS} SMOKE_ENV=/dev/null PATH="${bin}:${PATH}" \
+	printf '%s\n' "${2:-}" >"${CACHED}"
+	LOG=${LOG} FAIL_PULLS=${FAIL_PULLS} CACHED=${CACHED} SMOKE_ENV=/dev/null PATH="${bin}:${PATH}" \
 		bash "${repo}/scripts/smoke.sh" update "${archive}"
 }
 
@@ -80,6 +88,16 @@ update "" >/dev/null 2>&1
 expect "four digest-pinned images are pulled" 4 "$(grep -c '^docker pull' "${work}/log")"
 expect "the backend's pin is one of them" 1 "$(grep -cxF "docker pull --quiet ${backend}" "${work}/log")"
 expect "morzer runs once, last" "morzer --verbose update ${archive}" "$(tail -n1 "${work}/log")"
+
+echo "# an image already present is not pulled"
+update "" "${backend}" >/dev/null 2>&1
+expect "three images are pulled" 3 "$(grep -c '^docker pull' "${work}/log")"
+expect "the present backend is not" 0 "$(grep -cxF "docker pull --quiet ${backend}" "${work}/log")"
+
+echo "# pins lists what the manifest pins by digest"
+pins=$(SMOKE_ENV=/dev/null bash "${repo}/scripts/smoke.sh" pins "${archive}")
+expect "four pins" 4 "$(printf '%s\n' "${pins}" | grep -c .)"
+expect "the backend's among them" 1 "$(printf '%s\n' "${pins}" | grep -cxF "${backend}")"
 
 echo "# a pull that fails is tried again"
 if update "${backend} 2" >/dev/null 2>&1; then

@@ -61,6 +61,9 @@ jobs:
       - name: Smoke tests
         run: bash tests/smoke/run.sh
 
+      - name: Image cache tests
+        run: bash tests/cache/run.sh
+
   workflows:
     runs-on: ubuntu-24.04
     permissions:

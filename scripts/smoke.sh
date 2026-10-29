@@ -6,6 +6,7 @@
 #   smoke.sh install <archive> <pubkey>...  fresh `sudo morzer init` and `apply`
 #   smoke.sh update <archive>               `sudo morzer update` to the archive
 #   smoke.sh probe                          the edge's loopback health port
+#   smoke.sh pins <archive>                 every image the archive pins by digest
 #   smoke.sh rollback <published> <new>     `sudo morzer rollback` from <new> to <published>
 #   smoke.sh diagnose                       `morzer status` and the Compose logs
 #   smoke.sh free-disk                      room for the release's disk requirement
@@ -66,14 +67,23 @@ manifest_field() {
 	manifest_of "$1" | sed -n "s/^[[:space:]]*$2:[[:space:]]*\([^[:space:]#]*\).*/\1/p" | sed -n 1p
 }
 
+# Every image an archive's manifest pins by digest, one per line.
+pins_of() {
+	manifest_of "$1" | grep -oE '[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}' | sort -u
+}
+
 # Pull every image an archive's manifest pins by digest, before morzer does.
 # morzer pulls each once and fails the whole operation on one dropped
 # connection; it skips an image already present under the reference it pins,
 # so these pulls, each tried 4 times, leave it nothing to fetch.
 pull_images() {
 	local pin attempt pins
-	pins=$(manifest_of "$1" | grep -oE '[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}' | sort -u)
+	pins=$(pins_of "$1")
 	for pin in ${pins}; do
+		# Loaded from a runner's image cache already: nothing to fetch.
+		if sudo docker image inspect "${pin}" >/dev/null 2>&1; then
+			continue
+		fi
 		for attempt in 1 2 3 4; do
 			sudo docker pull --quiet "${pin}" >/dev/null && break
 			[ "${attempt}" -lt 4 ] || die "could not pull ${pin} in 4 attempts"
@@ -133,11 +143,15 @@ update)
 	sudo morzer --verbose update "$2"
 	;;
 probe) probe ;;
+pins)
+	[ $# -eq 2 ] || die "usage: smoke.sh pins <archive>"
+	pins_of "$2"
+	;;
 rollback)
 	[ $# -eq 3 ] || die "usage: smoke.sh rollback <published archive> <new archive>"
 	rollback "$2" "$3"
 	;;
 free-disk) free_disk ;;
 diagnose) diagnose ;;
-*) die "usage: smoke.sh install|update|probe|rollback|diagnose|free-disk" ;;
+*) die "usage: smoke.sh install|update|probe|pins|rollback|diagnose|free-disk" ;;
 esac

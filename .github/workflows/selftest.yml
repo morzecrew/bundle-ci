@@ -1,0 +1,30 @@
+# Temporary: shows whether GitHub loads bundle.yml as a called workflow.
+name: selftest
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  local:
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/bundle.yml
+    with:
+      ref: ${{ github.sha }}
+      version: 0.0.0-selftest.1
+      signing: ephemeral
+      bundle-ci-ref: ${{ github.sha }}
+
+  remote:
+    permissions:
+      contents: read
+      packages: read
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@2ba5b130e5b8139d00f1cb9a2a16ad5d3939d0e0
+    with:
+      ref: ${{ github.sha }}
+      version: 0.0.0-selftest.2
+      signing: ephemeral
+      bundle-ci-ref: 2ba5b130e5b8139d00f1cb9a2a16ad5d3939d0e0

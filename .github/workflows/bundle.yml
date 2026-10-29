@@ -380,8 +380,10 @@ jobs:
       - name: Probe
         run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh probe
 
-      # In name order, each followed by a probe. A hook sources
-      # /rig/smoke-lib.sh for what it shares with smoke.sh.
+      # The directory is copied whole to /rig/smoke.d, and its top-level *.sh
+      # run in name order, each followed by a probe; anything else in it is
+      # there for a hook to source. A hook sources /rig/smoke-lib.sh for what
+      # it shares with smoke.sh.
       - name: Run the product's smoke hooks
         env:
           HOOKS: ${{ inputs.smoke-hooks }}
@@ -393,10 +395,10 @@ jobs:
             exit 0
           fi
           rig() { bash .bundle-ci/scripts/rig.sh "$@"; }
+          rig cp "${RIG}" "${HOOKS}" /rig/smoke.d
           for hook in "${hooks[@]}"; do
             name=$(basename "${hook}")
             echo "::group::${name}"
-            rig cp "${RIG}" "${hook}" "/rig/smoke.d/${name}"
             rig exec "${RIG}" bash "/rig/smoke.d/${name}"
             rig exec "${RIG}" bash /rig/smoke.sh probe
             echo "::endgroup::"

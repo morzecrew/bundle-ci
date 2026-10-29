@@ -194,9 +194,11 @@ jobs:
 
 ### Smoke hooks
 
-`smoke-install` installs the bundle in the rig and probes it, then runs each
-`*.sh` in `smoke-hooks` in name order, as root inside the rig, each followed by
-a probe. A hook starts with `. /rig/smoke-lib.sh`, which gives it:
+`smoke-install` installs the bundle in the rig and probes it, copies the
+`smoke-hooks` directory whole to `/rig/smoke.d`, then runs each top-level `*.sh`
+there in name order, as root, each followed by a probe. Anything else in the
+directory, such as a `lib/` of the product's helpers, is there for a hook to
+source. A hook starts with `. /rig/smoke-lib.sh`, which gives it:
 
 - `SMOKE_PROJECT`, the Compose project (the manifest's
   `runtimes.compose.options.project`, else `metadata.name`);

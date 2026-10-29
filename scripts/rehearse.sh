@@ -241,10 +241,11 @@ smoke() {
 smoke install "${rig_published}" "${from_pubkey}" "${pubkey}"
 smoke probe
 shopt -s nullglob
-for hook in "${root}/${hooks}"/*.sh; do
+hook_files=("${root}/${hooks}"/*.sh)
+[ ${#hook_files[@]} -eq 0 ] || bash "${rig}" cp "${name}" "${root}/${hooks}" /rig/smoke.d
+for hook in "${hook_files[@]}"; do
 	hook_name=$(basename "${hook}")
 	echo "rehearse.sh: hook ${hook_name}"
-	bash "${rig}" cp "${name}" "${hook}" "/rig/smoke.d/${hook_name}"
 	if ! in_rig bash "/rig/smoke.d/${hook_name}"; then
 		in_rig bash /rig/smoke.sh diagnose || true
 		die "the hook ${hook_name} failed"

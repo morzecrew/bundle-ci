@@ -61,13 +61,13 @@ concurrency:
 jobs:
   pin:
     permissions: { contents: write, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.2.1
+    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.3.0
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: pin
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.2.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.0
     with:
       ref: ${{ needs.pin.outputs.sha }}
       channel: main
@@ -82,7 +82,7 @@ jobs:
     needs: [pin, bundle]
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.2.1
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.0
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -103,13 +103,13 @@ concurrency:
 jobs:
   guard:
     permissions: { contents: read }
-    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.2.1
+    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.3.0
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: guard
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.2.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.0
     with:
       ref: ${{ github.sha }}
       version: ${{ needs.guard.outputs.version }}
@@ -125,7 +125,7 @@ jobs:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.2.1
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.0
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -146,7 +146,7 @@ concurrency:
 jobs:
   bundle:
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.2.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.0
     with:
       ref: ${{ github.sha }}
       version: 0.0.0-pr.${{ github.event.pull_request.number }}
@@ -169,7 +169,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.2.1
+    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.3.0
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     secrets:
@@ -181,8 +181,9 @@ jobs:
 | Input | Default | |
 |---|---|---|
 | `ref` | — | the product commit to build |
-| `version` | the dev version | `0.0.0-pr.N` for a pull request, `X.Y.Z` for a release; empty takes `scripts/version.sh`'s `<next-patch>-dev.<n>.g<sha>` of the last commit that changed `bundle/` |
-| `pin` | `none` | `dev` pins every component's `main`; `release` promotes the committed pins as `bundle-<version>` |
+| `version` | the dev version | `0.0.0-pr.N` for a pull request, `X.Y.Z` for a release; empty takes `scripts/version.sh`'s `<next-patch>-dev.<n>.g<sha>` of the last commit that changed `version-paths` |
+| `version-paths` | `bundle` | the paths whose last commit names the dev version; a product in one repository adds its code's |
+| `pin` | `none` | `dev` pins every component's `main`; `release` promotes the committed pins as `bundle-<version>`; `promote` promotes the pins of the dev bundle the commit was published as ([below](#a-product-in-one-repository)) |
 | `channel` | — | `main` or `stable`: what `smoke-update` updates from, and whether a published version is refused |
 | `signing` | — | `dev`, `release`, or `ephemeral` (a key made in the job) |
 | `on-existing` | `fail` | `skip` ends the run quietly when the version is already published |
@@ -269,7 +270,8 @@ either manifest pins into it.
 ### Releasing a product
 
 A release promotes a dev build: it ships the component digests the dev channel
-committed, and `publish.yml` tags each image `bundle-<version>`, which a
+committed (or, in one repository, pinned in its dev bundle), and `publish.yml`
+tags each image `bundle-<version>`, which a
 retention that deletes a version only when every tag matches (as
 `snok/container-retention-policy` v3 does) never selects. The tag needs the
 product repository to hold the **Write** role under each component package's
@@ -278,6 +280,91 @@ product repository to hold the **Write** role under each component package's
 ```console
 git tag vA.B.C <commit> && git push origin vA.B.C
 ```
+
+### A product in one repository
+
+When a product's code lives beside its bundle, one repository builds both, and
+nothing commits pins back to it:
+
+- `main.yml` builds the code's image with `component-image.yml`, then calls
+  `bundle.yml` with `pin: dev`, which resolves the image's `main` in the job
+  and commits nothing. The concurrency group makes `main` this run's build, or
+  the last one when the code did not change. `version-paths` names the code's
+  paths beside `bundle`, so a commit to the code is a new dev version.
+- `release.yml` passes `pin: promote`. The release reads the digests from the
+  dev bundle its commit was published as (`:<dev version>`, named as before the
+  tag existed), and `publish.yml` tags them `bundle-<version>`; the image is
+  never rebuilt. `retention.yml` keeps the last 5 dev versions, so a release
+  of an older commit is refused: release a newer one.
+- `bundle/manifest.yaml` commits the code's image as `repo:main@sha256:000…0`,
+  a placeholder only CI fills in. The image is a package of its own, since the
+  bundle takes the repository's name.
+- A pull request's bundle pins the image `main` points at, not one built from
+  the pull request.
+
+```yaml
+# .github/workflows/main.yml -- the code's image, then the dev channel
+name: main
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: main-bundle
+  cancel-in-progress: false
+jobs:
+  image:
+    permissions: { contents: write, packages: write, pull-requests: read }
+    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.3.0
+    with:
+      component: app
+      schema-label: tech.morze.demo.schema
+      schema-dir: app/migrations
+      images: >-
+        [{"name": "app", "image": "demo-app", "context": ".", "file": "containers/app/Dockerfile",
+          "paths": ["app/**", "containers/app/**"]}]
+      runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+  bundle:
+    needs: image
+    permissions: { contents: read, packages: read }
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.0
+    with:
+      ref: ${{ github.sha }}
+      pin: dev
+      version-paths: bundle app containers/app
+      components: app
+      schema-image: app
+      channel: main
+      signing: dev
+      on-existing: skip # nothing moved since the last run
+      runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+      dev-pubkey: ${{ vars.MINISIGN_DEV_PUBKEY }}
+    secrets:
+      minisign-key: ${{ secrets.MINISIGN_DEV_KEY }}
+  publish:
+    needs: bundle
+    if: needs.bundle.outputs.proceed == 'true'
+    permissions: { contents: read, packages: write }
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.0
+    with:
+      version: ${{ needs.bundle.outputs.version }}
+      archive: ${{ needs.bundle.outputs.archive }}
+      channel: main
+      runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+```
+
+`release.yml` is the one above with these inputs to `bundle.yml`, and
+`pr.yml` the one above with `components` and `schema-image`:
+
+```yaml
+      pin: promote
+      version-paths: bundle app containers/app
+      components: app
+      schema-image: app
+```
+
+`component-retention.yml` keeps the image's package beside the bundle's.
 
 ## A component repository
 
@@ -305,7 +392,7 @@ concurrency:
 jobs:
   images:
     permissions: { contents: write, packages: write, pull-requests: read }
-    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.2.1
+    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.3.0
     with:
       component: backend
       bundle-repo: demo-standalone
@@ -334,7 +421,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/component-retention.yml@v0.2.1
+    uses: morzecrew/bundle-ci/.github/workflows/component-retention.yml@v0.3.0
     with:
       images: demo-backend demo-migrations
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}

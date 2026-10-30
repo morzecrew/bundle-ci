@@ -24,9 +24,13 @@ on:
         type: string
         default: ""
       pin:
-        description: "Pin the components first: none, dev (their main) or release (the committed pins, promoted to `version`)"
+        description: "Pin the components first: none, dev (their main), release (the committed pins, promoted to `version`) or promote (the pins of the dev bundle the commit was published as, promoted to `version`)"
         type: string
         default: none
+      version-paths:
+        description: The paths whose last commit names the dev version, space-separated; a product whose code shares the repository adds the code's
+        type: string
+        default: bundle
       channel:
         description: "Channel the caller publishes to (main or stable); empty skips the published-version check"
         type: string
@@ -86,7 +90,7 @@ on:
       bundle-ci-ref:
         description: The bundle-ci ref whose scripts the jobs run
         type: string
-        default: v0.2.1 # bundle-ci-ref: a release rewrites this to its tag
+        default: v0.3.0 # bundle-ci-ref: a release rewrites this to its tag
     secrets:
       minisign-key:
         description: The minisign secret key, for dev and release signing
@@ -167,11 +171,25 @@ jobs:
           printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           echo "DOCKER_CONFIG=${DOCKER_CONFIG}" >>"${GITHUB_ENV}"
 
+      # Named before the pin, which edits bundle/manifest.yaml: version.sh
+      # refuses a change no commit carries.
+      - name: Name the version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+          VERSION_PATHS: ${{ inputs.version-paths }}
+        run: |
+          # A commit outside version-paths names the version already built,
+          # so its run finds that version published.
+          [ -n "${VERSION}" ] || VERSION=$(bash .bundle-ci/scripts/version.sh)
+          echo "version=${VERSION}" >>"${GITHUB_OUTPUT}"
+
       - name: Pin the components
         if: inputs.pin != 'none'
         env:
           PIN: ${{ inputs.pin }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_PATHS: ${{ inputs.version-paths }}
           PIN_COMPONENTS: ${{ inputs.components }}
           PIN_SCHEMA_IMAGE: ${{ inputs.schema-image }}
           SCHEMA_LABEL: ${{ inputs.schema-label }}
@@ -179,17 +197,33 @@ jobs:
           case "${PIN}" in
           dev) bash .bundle-ci/scripts/pin.sh ;;
           release) bash .bundle-ci/scripts/pin.sh --release "${VERSION}" ;;
+          promote)
+            # The dev bundle this commit was published as, named as it was
+            # before the release's tag existed.
+            dev=$(VERSION_EXCLUDE="v${VERSION}" bash .bundle-ci/scripts/version.sh)
+            ref="ghcr.io/${GITHUB_REPOSITORY,,}:${dev}"
+            status=0
+            bash .bundle-ci/scripts/registry.sh exists "${ref}" || status=$?
+            case "${status}" in
+            0) ;;
+            1) echo "::error::${ref} is not published: the dev channel never built this commit, or retention pruned it; release a newer commit of main"; exit 1 ;;
+            *) exit 1 ;;
+            esac
+            oras pull "${ref}" -o "${RUNNER_TEMP}/promoted"
+            archive=$(find "${RUNNER_TEMP}/promoted" -maxdepth 1 -name '*.tar.zst' -print -quit)
+            [ -n "${archive}" ] || { echo "::error::${ref} holds no bundle archive"; exit 1; }
+            bash .bundle-ci/scripts/smoke.sh manifest "${archive}" >"${RUNNER_TEMP}/promoted.yaml"
+            PIN_FROM="${RUNNER_TEMP}/promoted.yaml" bash .bundle-ci/scripts/pin.sh --release "${VERSION}"
+            echo "Promoted the pins of \`${ref}\`." >>"${GITHUB_STEP_SUMMARY}"
+            ;;
           *) echo "::error::unknown pin mode '${PIN}'"; exit 1 ;;
           esac
 
       - name: Build
         id: build
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          # Two commits with one bundle/ name one version, so a run after a
-          # commit outside bundle/ finds its version published.
-          [ -n "${VERSION}" ] || VERSION=$(bash .bundle-ci/scripts/version.sh)
           set -- --version "${VERSION}"
           # Under --json morzer's error is only in the envelope on stdout.
           if ! out=$(morzer release build bundle "$@" --json); then

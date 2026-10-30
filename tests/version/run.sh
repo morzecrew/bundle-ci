@@ -11,7 +11,9 @@
 # a bare `X.Y.Z` tag is accepted as a `vX.Y.Z` one is, and the script refuses
 # with the reason on stderr when `bundle/` has no commit, no reachable tag, a
 # nearest tag that is not `X.Y.Z` or `vX.Y.Z`, or an untracked or modified
-# file. Success prints one line on stdout and nothing on stderr.
+# file. VERSION_PATHS adds paths whose commits name a version, and whose dirt
+# is refused, and VERSION_EXCLUDE skips a tag on the commit. Success prints
+# one line on stdout and nothing on stderr.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -200,6 +202,28 @@ k=$(tagged_then_bundle k)
 write "${k}" notes.txt "uncommitted"
 expect_version "a dirty file outside bundle/ does not refuse" "${k}" \
 	"0.0.1-dev.1.g$(described_sha "${k}" HEAD)"
+
+echo "# VERSION_PATHS: a product's code names a version too"
+m=$(tagged_then_bundle m)
+write "${m}" app/main.py "print()"
+commit "${m}" "app"
+expect_version "by default a commit outside bundle/ keeps the version" "${m}" \
+	"0.0.1-dev.1.g$(described_sha "${m}" 'HEAD~1')"
+VERSION_PATHS="bundle app" expect_version "a commit under a named path names the version" "${m}" \
+	"0.0.1-dev.2.g$(described_sha "${m}" HEAD)"
+write "${m}" app/main.py "changed"
+VERSION_PATHS="bundle app" expect_refusal "a modified file under a named path" "${m}" "uncommitted changes"
+err_names " M app/main.py" "the reason lists the modified file"
+expect_version "a path not named is not the bundle's" "${m}" \
+	"0.0.1-dev.1.g$(described_sha "${m}" 'HEAD~1')"
+
+echo "# VERSION_EXCLUDE: a release reads the dev version its commit had"
+n=$(tagged_then_bundle n)
+published=$(version_at "${n}")
+git_in "${n}" tag v0.1.0
+expect_version "the release's tag is the nearest without it" "${n}" \
+	"0.1.1-dev.0.g$(described_sha "${n}" HEAD)"
+VERSION_EXCLUDE=v0.1.0 expect_version "skipping it names the version published before" "${n}" "${published}"
 
 # A workflow runs the script from bundle-ci's checkout with the product's
 # checkout as its working directory, so the default is the current directory.

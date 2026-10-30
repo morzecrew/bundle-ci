@@ -8,9 +8,9 @@
 #
 # It checks that every image the archive's manifest pins by digest is pulled
 # once before morzer runs, and nothing else; that an image already present is
-# not; that `pins` lists them; that a pull which fails is tried again until it
-# succeeds; and that one which fails 4 times stops the update before morzer
-# runs.
+# not; that `pins` lists them and `manifest` prints the manifest; that a pull
+# which fails is tried again until it succeeds; and that one which fails 4
+# times stops the update before morzer runs.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -98,6 +98,10 @@ echo "# pins lists what the manifest pins by digest"
 pins=$(SMOKE_ENV=/dev/null bash "${repo}/scripts/smoke.sh" pins "${archive}")
 expect "four pins" 4 "$(printf '%s\n' "${pins}" | grep -c .)"
 expect "the backend's among them" 1 "$(printf '%s\n' "${pins}" | grep -cxF "${backend}")"
+
+echo "# manifest prints the archive's manifest"
+expect "the manifest, byte for byte" "$(cat "${work}/archive/bundle/manifest.yaml")" \
+	"$(SMOKE_ENV=/dev/null bash "${repo}/scripts/smoke.sh" manifest "${archive}")"
 
 echo "# a pull that fails is tried again"
 if update "${backend} 2" >/dev/null 2>&1; then

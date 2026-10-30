@@ -40,7 +40,10 @@ permission it grants is visible where it is granted.
 ### A product's callers
 
 Pin the workflows to a release tag (or its commit). `RUNS_ON` is a repository
-variable naming the runner label; without it jobs run on `ubuntu-24.04`.
+variable naming the runner label; without it jobs run on `ubuntu-24.04`. Every
+job has a `timeout-minutes`, so one a self-hosted runner hangs fails within the
+hour instead of holding the concurrency group, and every run queued behind it,
+for GitHub's six.
 
 ```yaml
 # .github/workflows/main.yml -- the dev channel
@@ -61,13 +64,13 @@ concurrency:
 jobs:
   pin:
     permissions: { contents: write, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.4.0
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: pin
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.4.0
     with:
       ref: ${{ needs.pin.outputs.sha }}
       channel: main
@@ -82,7 +85,7 @@ jobs:
     needs: [pin, bundle]
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.4.0
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -103,13 +106,13 @@ concurrency:
 jobs:
   guard:
     permissions: { contents: read }
-    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.4.0
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: guard
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.4.0
     with:
       ref: ${{ github.sha }}
       version: ${{ needs.guard.outputs.version }}
@@ -125,7 +128,7 @@ jobs:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.4.0
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -146,7 +149,7 @@ concurrency:
 jobs:
   bundle:
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.4.0
     with:
       ref: ${{ github.sha }}
       version: 0.0.0-pr.${{ github.event.pull_request.number }}
@@ -169,7 +172,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.4.0
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     secrets:
@@ -309,6 +312,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "23 */6 * * *"
 permissions: {}
 concurrency:
   group: main-bundle
@@ -316,7 +321,7 @@ concurrency:
 jobs:
   image:
     permissions: { contents: write, packages: write, pull-requests: read }
-    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.4.0
     with:
       component: app
       schema-label: tech.morze.demo.schema
@@ -328,7 +333,7 @@ jobs:
   bundle:
     needs: image
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.4.0
     with:
       ref: ${{ github.sha }}
       pin: dev
@@ -346,7 +351,7 @@ jobs:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.4.0
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -385,6 +390,8 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
 permissions: {}
 concurrency:
   group: images-${{ github.ref }}
@@ -392,7 +399,7 @@ concurrency:
 jobs:
   images:
     permissions: { contents: write, packages: write, pull-requests: read }
-    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.4.0
     with:
       component: backend
       bundle-repo: demo-standalone
@@ -421,7 +428,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/component-retention.yml@v0.3.1
+    uses: morzecrew/bundle-ci/.github/workflows/component-retention.yml@v0.4.0
     with:
       images: demo-backend demo-migrations
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
@@ -448,6 +455,11 @@ push. An image without a `main`, or one built from a commit outside `main`'s
 history, is rebuilt; a re-run of an older push rebuilds nothing. There the
 `paths` are git glob pathspecs, which read `dir/**` and a file's path as a pull
 request's filter does.
+
+A scheduled run does the same on `main`, so a build that hung or was cancelled
+is caught up by the next tick rather than the next push; when every image's
+`main` is current it costs a checkout and one registry lookup per image, and
+builds nothing. A manual run (`workflow_dispatch`) still rebuilds every image.
 
 The images are plain manifests (`provenance: false`): an attestation would
 wrap one in an index whose entries are untagged, which the untagged rule would

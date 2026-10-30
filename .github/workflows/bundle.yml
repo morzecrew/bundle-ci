@@ -90,7 +90,7 @@ on:
       bundle-ci-ref:
         description: The bundle-ci ref whose scripts the jobs run
         type: string
-        default: v0.3.1 # bundle-ci-ref: a release rewrites this to its tag
+        default: v0.4.0 # bundle-ci-ref: a release rewrites this to its tag
     secrets:
       minisign-key:
         description: The minisign secret key, for dev and release signing
@@ -120,6 +120,10 @@ defaults:
 jobs:
   build:
     runs-on: ${{ inputs.runs-on }}
+    # A hung job fails here, not at GitHub's 360 minutes, which would hold
+    # the caller's concurrency group and every run queued behind it. Each is
+    # at least twice the longest successful run seen on self-hosted runners.
+    timeout-minutes: 30
     container:
       image: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
     permissions:
@@ -347,6 +351,7 @@ jobs:
     needs: build
     if: needs.build.outputs.proceed == 'true'
     runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: read
@@ -475,6 +480,7 @@ jobs:
     needs: build
     if: needs.build.outputs.proceed == 'true'
     runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: read

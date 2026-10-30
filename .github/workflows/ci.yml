@@ -25,6 +25,7 @@ env:
 jobs:
   scripts:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -69,6 +70,7 @@ jobs:
 
   workflows:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -104,10 +106,26 @@ jobs:
           [ "${count}" -eq 1 ] || { echo "::error::bundle-ci-ref defaults differ: ${refs//$'\n'/, }"; exit 1; }
           echo "bundle-ci-ref default: ${refs}"
 
+      # A job without one runs for GitHub's 360 minutes when a self-hosted
+      # runner hangs, holding the caller's concurrency group all that time. A
+      # job that calls a workflow takes the called jobs' timeouts.
+      - name: Every job has a timeout
+        run: |
+          set -euo pipefail
+          missing=$(awk '
+            FNR == 1 { if (job && !t) print file ": " job; job = ""; jobs = 0; file = FILENAME }
+            /^jobs:/ { jobs = 1; next }
+            jobs && /^  [a-z][a-z0-9-]*:[[:space:]]*$/ { if (job && !t) print file ": " job; job = $1; sub(/:$/, "", job); t = 0 }
+            jobs && /^    (timeout-minutes|uses):/ { t = 1 }
+            END { if (job && !t) print file ": " job }
+          ' .github/workflows/*.yml)
+          [ -z "${missing}" ] || { echo "::error::jobs without timeout-minutes: ${missing//$'\n'/, }"; exit 1; }
+
   # The repository's conventions, checked by the scripts of the skills that
   # define them (.agents/skills).
   conventions:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

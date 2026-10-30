@@ -31,6 +31,10 @@ permissions: {}
 jobs:
   retention:
     runs-on: ${{ inputs.runs-on }}
+    # A hung job fails here, not at GitHub's 360 minutes, which would hold
+    # the caller's concurrency group and every run queued behind it. Each is
+    # at least twice the longest successful run seen on self-hosted runners.
+    timeout-minutes: 15
     # The package API is reached with the token secret, not GITHUB_TOKEN.
     permissions: {}
     steps:

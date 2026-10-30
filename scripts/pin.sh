@@ -15,7 +15,10 @@
 # `--release` resolves no tag: it keeps each digest the committed manifest
 # pins and names it under the tag `bundle-X.Y.Z`, which publish.yml then puts
 # on the image so the components' retention keeps it. It refuses the all-zero
-# placeholder and a digest the registry no longer holds.
+# placeholder and a digest the registry no longer holds. A product whose
+# bundle shares its repository with its code commits no pins: its release
+# reads them from the dev bundle the tagged commit was published as, which
+# PIN_FROM names.
 #
 # Every pin is resolved before the manifest is written, so a refusal leaves it
 # as it was. The digests come from `scripts/resolve.sh`, which reaches the
@@ -28,6 +31,8 @@
 #   PIN_SCHEMA_IMAGE  the key whose image carries the schema label (default:
 #                     migrations; set it empty when no image does)
 #   SCHEMA_LABEL      the label (default: tech.morze.<metadata.name>.schema)
+#   PIN_FROM          the manifest whose digests `--release` promotes (default:
+#                     bundle/manifest.yaml, the committed pins)
 set -euo pipefail
 
 self_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -38,6 +43,7 @@ schema_image=${PIN_SCHEMA_IMAGE-migrations}
 
 manifest=${root}/bundle/manifest.yaml
 components=${root}/components.yaml
+pinned_from=${PIN_FROM:-${manifest}}
 
 die() {
 	echo "pin.sh: $*" >&2
@@ -72,6 +78,7 @@ if $release; then
 fi
 
 [ -f "$manifest" ] || die "no bundle/manifest.yaml under ${root}"
+[ -f "$pinned_from" ] || die "PIN_FROM: no manifest at ${pinned_from}"
 [ -f "$resolve" ] || die "no resolver at ${resolve}"
 
 product=$(yq -r '.metadata.name // ""' "$manifest")
@@ -110,17 +117,18 @@ rollback_safe_of() {
 	yq -r ".${name}.rollback_safe" "$components"
 }
 
-# The digest the committed manifest pins an image key to. The all-zero
-# placeholder a new bundle starts with is no pin at all: nothing the dev
-# channel installed.
+# The digest the dev channel pinned an image key to: the committed manifest's,
+# or PIN_FROM's. The all-zero placeholder a new bundle starts with is no pin at
+# all: nothing the dev channel installed.
 committed_digest() {
-	local value digest
-	value=$(yq -r ".images.$1" "$manifest")
+	local value digest name
+	name=${pinned_from#"${root}/"}
+	value=$(yq -r ".images.$1" "$pinned_from")
 	digest=${value##*@}
 	[[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] \
-		|| die "bundle/manifest.yaml pins images.$1 to no digest: '${value}'"
+		|| die "${name} pins images.$1 to no digest: '${value}'"
 	if [[ $digest =~ ^sha256:0+$ ]]; then
-		die "bundle/manifest.yaml's images.$1 holds the placeholder digest; a release promotes what main.yml pinned"
+		die "${name}'s images.$1 holds the placeholder digest; a release promotes what main.yml pinned"
 	fi
 	printf '%s\n' "$digest"
 }

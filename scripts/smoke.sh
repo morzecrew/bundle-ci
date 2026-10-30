@@ -7,6 +7,7 @@
 #   smoke.sh update <archive>               `sudo morzer update` to the archive
 #   smoke.sh probe                          the edge's loopback health port
 #   smoke.sh pins <archive>                 every image the archive pins by digest
+#   smoke.sh manifest <archive>             the archive's manifest.yaml
 #   smoke.sh rollback <published> <new>     `sudo morzer rollback` from <new> to <published>
 #   smoke.sh diagnose                       `morzer status` and the Compose logs
 #   smoke.sh free-disk                      room for the release's disk requirement
@@ -147,11 +148,15 @@ pins)
 	[ $# -eq 2 ] || die "usage: smoke.sh pins <archive>"
 	pins_of "$2"
 	;;
+manifest)
+	[ $# -eq 2 ] || die "usage: smoke.sh manifest <archive>"
+	manifest_of "$2"
+	;;
 rollback)
 	[ $# -eq 3 ] || die "usage: smoke.sh rollback <published archive> <new archive>"
 	rollback "$2" "$3"
 	;;
 free-disk) free_disk ;;
 diagnose) diagnose ;;
-*) die "usage: smoke.sh install|update|probe|pins|rollback|diagnose|free-disk" ;;
+*) die "usage: smoke.sh install|update|probe|pins|manifest|rollback|diagnose|free-disk" ;;
 esac

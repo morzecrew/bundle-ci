@@ -14,7 +14,8 @@
 # pinned, pinning twice changes nothing, and no other value in the manifest
 # moves; and that release mode writes `compatibility.rollback_safe` true only
 # when every components.yaml entry is, refuses a value that is not a boolean,
-# and a plain pin leaves the committed value alone.
+# and a plain pin leaves the committed value alone; and that PIN_FROM promotes
+# another manifest's digests over a committed placeholder.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -237,6 +238,39 @@ refuses_safe() { # refuses_safe <what> <backend safe> <frontend safe> <substring
 refuses_safe "a rollback_safe that is neither true nor false" maybe false "is not true or false"
 refuses_safe "a quoted 'true', which is a string, not a boolean" '"true"' false "is not true or false"
 refuses_safe "a missing frontend rollback_safe" true null "is not true or false"
+
+# A bundle that shares its repository with its code commits the placeholder,
+# and its release reads the digests from the dev bundle's manifest.
+echo "# PIN_FROM: a release promotes another manifest's digests"
+from=$(new_tree from)
+write_components "${from}" true true
+yq -i "
+	.images.backend = \"ghcr.io/acme/demo-backend:main@${zero}\" |
+	.images.migrations = \"ghcr.io/acme/demo-migrations:main@${zero}\" |
+	.images.frontend = \"ghcr.io/acme/demo-frontend:main@${zero}\"" \
+	"${from}/bundle/manifest.yaml"
+dev_manifest=${work}/dev-manifest.yaml
+yq "
+	.images.backend = \"ghcr.io/acme/demo-backend:main@${committed_backend}\" |
+	.images.migrations = \"ghcr.io/acme/demo-migrations:main@${committed_migrations}\" |
+	.images.frontend = \"ghcr.io/acme/demo-frontend:main@${committed_frontend}\"" \
+	"${original}" >"${dev_manifest}"
+PIN_FROM="${dev_manifest}" pin "${from}" --release 1.2.3 >/dev/null
+expect "the backend's digest comes from PIN_FROM" \
+	"ghcr.io/acme/demo-backend:bundle-1.2.3@${committed_backend}" \
+	"$(yaml_get "${from}" '.images.backend')"
+expect "the migrations' digest comes from PIN_FROM" \
+	"ghcr.io/acme/demo-migrations:bundle-1.2.3@${committed_migrations}" \
+	"$(yaml_get "${from}" '.images.migrations')"
+expect "PIN_FROM itself is never written" \
+	"ghcr.io/acme/demo-backend:main@${committed_backend}" "$(yq -r '.images.backend' "${dev_manifest}")"
+refuse "a PIN_FROM that is not there" "no manifest at" \
+	env PIN_FROM="${work}/absent.yaml" PIN_ROOT="${from}" RESOLVE="${resolve_fixture}" \
+	bash "${repo}/scripts/pin.sh" --release 1.2.3
+yq -i ".images.frontend = \"ghcr.io/acme/demo-frontend:main@${zero}\"" "${dev_manifest}"
+refuse "a PIN_FROM placeholder" "dev-manifest.yaml's images.frontend holds the placeholder digest" \
+	env PIN_FROM="${dev_manifest}" PIN_ROOT="${from}" RESOLVE="${resolve_fixture}" \
+	bash "${repo}/scripts/pin.sh" --release 1.2.3
 
 echo "# PIN_COMPONENTS and PIN_SCHEMA_IMAGE name what is pinned"
 some=$(new_tree some)

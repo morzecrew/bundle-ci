@@ -63,7 +63,7 @@ on:
       bundle-ci-ref:
         description: The bundle-ci ref whose scripts the plan runs
         type: string
-        default: v0.4.0 # bundle-ci-ref: a release rewrites this to its tag
+        default: v0.4.1 # bundle-ci-ref: a release rewrites this to its tag
     secrets:
       app-private-key:
         description: That GitHub App's private key
@@ -313,6 +313,10 @@ jobs:
         id: token
         if: inputs.app-id != ''
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        # v3 refuses to run when HTTP(S)_PROXY is set, as on a self-hosted
+        # runner behind a proxy, unless Node is told to use it.
+        env:
+          NODE_USE_ENV_PROXY: "1"
         with:
           app-id: ${{ inputs.app-id }}
           private-key: ${{ secrets.app-private-key }}

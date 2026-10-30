@@ -6,7 +6,10 @@
 #   bundle repository, whose dev channel pins them by digest;
 # - a `vX.Y.Z` tag on main publishes every image as `X.Y.Z` and creates the
 #   GitHub release from the tag's CHANGELOG section;
-# - a pull request builds what it changed, and pushes nothing.
+# - a pull request builds what it changed, and pushes nothing;
+# - a scheduled run on `main` does what a push does, so an image whose build
+#   hung or was cancelled is caught up without waiting for another push, and
+#   one whose `main` is current costs a registry lookup.
 #
 # Images are plain manifests (`provenance: false`): an attestation would wrap
 # one in an index whose entries are untagged, which component-retention.yml's
@@ -60,7 +63,7 @@ on:
       bundle-ci-ref:
         description: The bundle-ci ref whose scripts the plan runs
         type: string
-        default: v0.3.1 # bundle-ci-ref: a release rewrites this to its tag
+        default: v0.4.0 # bundle-ci-ref: a release rewrites this to its tag
     secrets:
       app-private-key:
         description: That GitHub App's private key
@@ -75,6 +78,10 @@ defaults:
 jobs:
   plan:
     runs-on: ${{ inputs.runs-on }}
+    # A hung job fails here, not at GitHub's 360 minutes, which would hold
+    # the caller's concurrency group and every run queued behind it. Each is
+    # at least twice the longest successful run seen on self-hosted runners.
+    timeout-minutes: 15
     # paths-filter lists a pull request's files through the API; a push to
     # main reads each image's `main` from the registry.
     permissions:
@@ -137,10 +144,10 @@ jobs:
 
       # On main, changed since the commit each image's `main` was built from,
       # not since the push's previous commit: a build that failed or was
-      # cancelled is caught up by the next push, rather than left out of every
-      # bundle until its paths change again.
+      # cancelled is caught up by the next push or scheduled run, rather than
+      # left out of every bundle until its paths change again.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main'
         with:
           repository: morzecrew/bundle-ci
           ref: ${{ inputs.bundle-ci-ref }}
@@ -149,7 +156,7 @@ jobs:
 
       - name: What changed since each image's main
         id: since
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main'
         env:
           TOKEN: ${{ github.token }}
           IMAGES: ${{ inputs.images }}
@@ -205,6 +212,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.images != '[]'
     runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -298,6 +306,7 @@ jobs:
     needs: [plan, build]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && inputs.bundle-repo != '' && needs.build.result == 'success'
     runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 10
     permissions: {}
     steps:
       - name: Token
@@ -340,6 +349,7 @@ jobs:
     needs: [plan, build]
     if: github.ref_type == 'tag'
     runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

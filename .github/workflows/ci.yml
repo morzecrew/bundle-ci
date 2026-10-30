@@ -64,6 +64,9 @@ jobs:
       - name: Image cache tests
         run: bash tests/cache/run.sh
 
+      - name: Changed image tests
+        run: bash tests/changed/run.sh
+
   workflows:
     runs-on: ubuntu-24.04
     permissions:

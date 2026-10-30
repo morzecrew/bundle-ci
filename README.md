@@ -61,13 +61,13 @@ concurrency:
 jobs:
   pin:
     permissions: { contents: write, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.3.1
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: pin
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.1
     with:
       ref: ${{ needs.pin.outputs.sha }}
       channel: main
@@ -82,7 +82,7 @@ jobs:
     needs: [pin, bundle]
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.1
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -103,13 +103,13 @@ concurrency:
 jobs:
   guard:
     permissions: { contents: read }
-    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.3.1
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: guard
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.1
     with:
       ref: ${{ github.sha }}
       version: ${{ needs.guard.outputs.version }}
@@ -125,7 +125,7 @@ jobs:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.1
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -146,7 +146,7 @@ concurrency:
 jobs:
   bundle:
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.1
     with:
       ref: ${{ github.sha }}
       version: 0.0.0-pr.${{ github.event.pull_request.number }}
@@ -169,7 +169,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.3.1
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     secrets:
@@ -316,7 +316,7 @@ concurrency:
 jobs:
   image:
     permissions: { contents: write, packages: write, pull-requests: read }
-    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.3.1
     with:
       component: app
       schema-label: tech.morze.demo.schema
@@ -328,7 +328,7 @@ jobs:
   bundle:
     needs: image
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.3.1
     with:
       ref: ${{ github.sha }}
       pin: dev
@@ -346,7 +346,7 @@ jobs:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.3.1
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -392,7 +392,7 @@ concurrency:
 jobs:
   images:
     permissions: { contents: write, packages: write, pull-requests: read }
-    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.3.1
     with:
       component: backend
       bundle-repo: demo-standalone
@@ -421,7 +421,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/component-retention.yml@v0.3.0
+    uses: morzecrew/bundle-ci/.github/workflows/component-retention.yml@v0.3.1
     with:
       images: demo-backend demo-migrations
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
@@ -433,13 +433,21 @@ jobs:
 
 | Input | Default | |
 |---|---|---|
-| `images` | — | a JSON array of `{name, image, context, file, target?, build-arg-prefix?, paths}`. `image` is the package under the repository's owner; `paths` are the globs whose change rebuilds it; `build-arg-prefix` names the build args `<prefix>VERSION` (`main` or `X.Y.Z`), `<prefix>BUILD_ID` (the short sha) and `<prefix>GIT_SHA` |
+| `images` | — | a JSON array of `{name, image, context, file, target?, build-arg-prefix?, paths}`. `image` is the package under the repository's owner; `paths` are the globs whose change rebuilds it (`!` excludes); `build-arg-prefix` names the build args `<prefix>VERSION` (`main` or `X.Y.Z`), `<prefix>BUILD_ID` (the short sha) and `<prefix>GIT_SHA` |
 | `component` | — | its name in the dispatch the bundle repository receives |
 | `bundle-repo` | — | the bundle repository under the same owner to tell when `main` moves |
 | `schema-label`, `schema-dir` | —, `db/migrations/postgres` | a label every image carries with the highest versioned migration in `schema-dir` (`<n>__*.sql`), the schema a bundle declares |
 | `tag-version-command` | — | a command printing the version a release tag must name, such as `jq -r .version package.json` |
 | `platforms` | `linux/amd64` | what to build for |
 | `app-id` | — | the GitHub App whose token dispatches to the bundle repository; without it the bundle picks the images up on its schedule |
+
+A push to `main` rebuilds each image whose `paths` changed since the commit
+its `main` was built from, which the image's `org.opencontainers.image.revision`
+label names, so a build that failed or was cancelled is caught up by the next
+push. An image without a `main`, or one built from a commit outside `main`'s
+history, is rebuilt; a re-run of an older push rebuilds nothing. There the
+`paths` are git glob pathspecs, which read `dir/**` and a file's path as a pull
+request's filter does.
 
 The images are plain manifests (`provenance: false`): an attestation would
 wrap one in an index whose entries are untagged, which the untagged rule would
@@ -474,6 +482,7 @@ bash tests/pin/run.sh       # needs mikefarah's yq
 bash tests/version/run.sh
 bash tests/smoke/run.sh     # needs zstd
 bash tests/cache/run.sh     # needs mikefarah's yq
+bash tests/changed/run.sh   # needs jq
 shellcheck -x scripts/*.sh tests/*/*.sh
 ```
 

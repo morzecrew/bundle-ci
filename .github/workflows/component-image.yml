@@ -1,9 +1,9 @@
 # Build and publish a component repository's OCI images to ghcr, as every
 # component behind a bundle does:
 #
-# - a push to `main` publishes the images whose inputs changed as `main`
-#   (rolling) and `sha-<commit>`, then tells the bundle repository, whose dev
-#   channel pins them by digest;
+# - a push to `main` publishes the images whose inputs changed since their
+#   `main` was built as `main` (rolling) and `sha-<commit>`, then tells the
+#   bundle repository, whose dev channel pins them by digest;
 # - a `vX.Y.Z` tag on main publishes every image as `X.Y.Z` and creates the
 #   GitHub release from the tag's CHANGELOG section;
 # - a pull request builds what it changed, and pushes nothing.
@@ -57,6 +57,10 @@ on:
         description: The GitHub App whose token dispatches to the bundle repository; empty skips the dispatch with a notice
         type: string
         default: ""
+      bundle-ci-ref:
+        description: The bundle-ci ref whose scripts the plan runs
+        type: string
+        default: v0.3.1 # bundle-ci-ref: a release rewrites this to its tag
     secrets:
       app-private-key:
         description: That GitHub App's private key
@@ -71,9 +75,11 @@ defaults:
 jobs:
   plan:
     runs-on: ${{ inputs.runs-on }}
-    # paths-filter lists a pull request's files through the API.
+    # paths-filter lists a pull request's files through the API; a push to
+    # main reads each image's `main` from the registry.
     permissions:
       contents: read
+      packages: read
       pull-requests: read
     outputs:
       images: ${{ steps.plan.outputs.images }}
@@ -124,10 +130,36 @@ jobs:
       # update on every VM that follows it. A tag or a manual run builds all.
       - name: What changed
         id: changes
-        if: github.ref_type != 'tag' && (github.event_name == 'push' || github.event_name == 'pull_request')
+        if: github.ref_type != 'tag' && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main'))
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: ${{ steps.filters.outputs.yaml }}
+
+      # On main, changed since the commit each image's `main` was built from,
+      # not since the push's previous commit: a build that failed or was
+      # cancelled is caught up by the next push, rather than left out of every
+      # bundle until its paths change again.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          repository: morzecrew/bundle-ci
+          ref: ${{ inputs.bundle-ci-ref }}
+          path: .bundle-ci
+          persist-credentials: false
+
+      - name: What changed since each image's main
+        id: since
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          TOKEN: ${{ github.token }}
+          IMAGES: ${{ inputs.images }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG="${RUNNER_TEMP}/docker" PATH="${RUNNER_TEMP}/bin:${PATH}"
+          mkdir -p "${DOCKER_CONFIG}"
+          BIN_DIR="${RUNNER_TEMP}/bin" bash .bundle-ci/scripts/tools.sh oras
+          printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          echo "images=$(bash .bundle-ci/scripts/changed.sh "${IMAGES}")" >>"${GITHUB_OUTPUT}"
 
       - name: Plan the builds
         id: plan
@@ -135,11 +167,14 @@ jobs:
           IMAGES: ${{ inputs.images }}
           FILTERED: ${{ steps.changes.outcome == 'success' }}
           CHANGED: ${{ steps.changes.outputs.changes }}
+          SINCE: ${{ steps.since.outputs.images }}
           SCHEMA_LABEL: ${{ inputs.schema-label }}
           SCHEMA_DIR: ${{ inputs.schema-dir }}
         run: |
           set -euo pipefail
-          if [ "${FILTERED}" = true ]; then
+          if [ -n "${SINCE}" ]; then
+            images=${SINCE}
+          elif [ "${FILTERED}" = true ]; then
             images=$(jq -c --argjson changed "${CHANGED:-[]}" 'map(select(.name as $n | $changed | index($n)))' <<<"${IMAGES}")
           else
             images=$(jq -c . <<<"${IMAGES}")

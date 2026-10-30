@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-30
+
+### Fixed
+
+- `component-image.yml` no longer leaves a change unbuilt when a push's build fails or is cancelled. A push to `main` rebuilt the images whose paths changed since the push's previous commit, so a migration whose own build was lost stayed out of `main` while the next push rebuilt only the backend, and the bundle paired them. It now rebuilds each image whose paths changed since the commit its `main` was built from, as the image's `org.opencontainers.image.revision` label names it.
+
 ## [0.3.0] - 2026-10-30
 
 ### Added
@@ -47,7 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/rehearse.sh` runs the smoke jobs' install, hooks, update and rollback on a workstation, from a product's root.
 - A product names its component keys, schema label, operator secrets and probe paths as inputs, and adds its own smoke checks as hooks in `.github/smoke.d`.
 
-[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/morzecrew/bundle-ci/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/morzecrew/bundle-ci/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/morzecrew/bundle-ci/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/morzecrew/bundle-ci/compare/v0.1.2...v0.2.0

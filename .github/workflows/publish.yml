@@ -34,7 +34,7 @@ on:
       bundle-ci-ref:
         description: The bundle-ci ref whose scripts the job runs
         type: string
-        default: v0.2.0 # bundle-ci-ref: a release rewrites this to its tag
+        default: v0.2.1 # bundle-ci-ref: a release rewrites this to its tag
 
 permissions: {}
 

@@ -7,7 +7,9 @@
 #                           runtimes.compose.options.project, else metadata.name
 #   SMOKE_HEALTH_PORT       the edge's loopback health port (default 8081)
 #   SMOKE_PROBE_PATHS       what `probe` asks the port for, space-separated
-#                           (default "/__platform_healthz /health")
+#                           (default "/__platform_healthz /health"); empty for
+#                           a bundle that serves no HTTP, whose release health
+#                           checks are then all a probe has
 #   SMOKE_OPERATOR_SECRETS  the secrets only an operator sets, which `install`
 #                           sets from `random`, space-separated
 #
@@ -21,7 +23,7 @@ if [ -f "${SMOKE_ENV:-/rig/smoke.env}" ]; then
 	. "${SMOKE_ENV:-/rig/smoke.env}"
 fi
 SMOKE_HEALTH_PORT=${SMOKE_HEALTH_PORT:-8081}
-SMOKE_PROBE_PATHS=${SMOKE_PROBE_PATHS:-/__platform_healthz /health}
+SMOKE_PROBE_PATHS=${SMOKE_PROBE_PATHS-/__platform_healthz /health}
 SMOKE_OPERATOR_SECRETS=${SMOKE_OPERATOR_SECRETS:-}
 
 die() {
@@ -47,6 +49,10 @@ service_container() {
 
 probe() {
 	local path
+	if [ -z "${SMOKE_PROBE_PATHS}" ]; then
+		echo "${0##*/}: no probe paths; morzer's health checks passed at apply"
+		return 0
+	fi
 	for path in ${SMOKE_PROBE_PATHS}; do
 		curl -fsS --max-time 10 --retry 10 --retry-delay 3 --retry-all-errors \
 			-o /dev/null "http://127.0.0.1:${SMOKE_HEALTH_PORT}${path}" \

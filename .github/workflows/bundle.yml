@@ -103,6 +103,10 @@ on:
         description: On a self-hosted runner, load the pinned images into each rig from the runner's own cache (scripts/image-cache.sh), pulling only what it has not seen
         type: boolean
         default: true
+      morzer-version:
+        description: The morzer release the build and the rigs install, 0.13.0 or later; empty takes the one this bundle-ci release pins
+        type: string
+        default: ""
       bundle-ci-ref:
         description: The bundle-ci ref whose scripts the jobs run
         type: string
@@ -179,6 +183,8 @@ jobs:
         run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Install tools
+        env:
+          MORZER_VERSION: ${{ inputs.morzer-version }}
         run: bash .bundle-ci/scripts/tools.sh minisign zstd morzer oras yq
 
       - name: Log in to ghcr
@@ -469,7 +475,9 @@ jobs:
           bash .bundle-ci/scripts/image-cache.sh prune "${cache}" 14
 
       - name: Install tools in the rig
-        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/tools.sh morzer sops age
+        env:
+          MORZER_VERSION: ${{ inputs.morzer-version }}
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" env MORZER_VERSION="${MORZER_VERSION}" bash /rig/tools.sh morzer sops age
 
       - name: Log the rig in to ghcr
         env:
@@ -660,7 +668,9 @@ jobs:
 
       - name: Install tools in the rig
         if: steps.published.outputs.archive != ''
-        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/tools.sh morzer sops age
+        env:
+          MORZER_VERSION: ${{ inputs.morzer-version }}
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" env MORZER_VERSION="${MORZER_VERSION}" bash /rig/tools.sh morzer sops age
 
       - name: Log the rig in to ghcr
         if: steps.published.outputs.archive != ''

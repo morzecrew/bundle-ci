@@ -90,7 +90,7 @@ echo "# every pinned image is pulled before morzer runs"
 update "" >/dev/null 2>&1
 expect "four digest-pinned images are pulled" 4 "$(grep -c '^docker pull' "${work}/log")"
 expect "the backend's pin is one of them" 1 "$(grep -cxF "docker pull --quiet ${backend}" "${work}/log")"
-expect "morzer runs once, last" "morzer --verbose update ${archive}" "$(tail -n1 "${work}/log")"
+expect "morzer runs once, last" "morzer --verbose update --allow-older ${archive}" "$(tail -n1 "${work}/log")"
 
 echo "# an image already present is not pulled"
 update "" "${backend}" >/dev/null 2>&1

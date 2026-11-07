@@ -154,7 +154,9 @@ install)
 update)
 	[ $# -eq 2 ] || die "usage: smoke.sh update <archive>"
 	pull_images "$2"
-	sudo morzer --verbose update "$2"
+	# A pull request's build, 0.0.0-pr.N, and a rehearsal's sort below the
+	# published dev version they update, which morzer refuses without this.
+	sudo morzer --verbose update --allow-older "$2"
 	;;
 probe) probe ;;
 pins)

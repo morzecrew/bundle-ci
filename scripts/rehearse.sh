@@ -24,6 +24,7 @@
 #   REHEARSE_PROBE_PATHS       `probe-paths` (default "/__platform_healthz /health";
 #                              empty skips the probe, as in CI)
 #   REHEARSE_HOOKS             `smoke-hooks` (default .github/smoke.d)
+#   REHEARSE_MORZER_VERSION    `morzer-version` (default: tools.sh's pin)
 #   REHEARSE_BUNDLE_DIR        `bundle-dir` (default bundle); a second bundle
 #                              also needs --from, since its package is not the
 #                              repository's name
@@ -154,7 +155,7 @@ bash "${rig}" cp "${name}" "${work}/smoke.env" /rig/smoke.env
 for script in tools.sh smoke.sh smoke-lib.sh; do
 	bash "${rig}" cp "${name}" "${scripts}/${script}" "/rig/${script}"
 done
-in_rig bash /rig/tools.sh morzer sops age
+in_rig env MORZER_VERSION="${REHEARSE_MORZER_VERSION:-}" bash /rig/tools.sh morzer sops age
 
 # The tree as git sees it, so nothing it ignores enters the rig.
 in_rig mkdir -p /rig/rehearsal /rig/dist /rig/published

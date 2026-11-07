@@ -12,7 +12,9 @@
 # Tools install in the order given; morzer needs minisign and zstd first.
 set -euo pipefail
 
-MORZER=0.12.0
+# MORZER_VERSION picks another morzer release, 0.13.0 or later: smoke.sh
+# updates with --allow-older, which 0.13.0 added.
+MORZER=${MORZER_VERSION:-0.13.0}
 # `morzer.pub` at the root of morzecrew/morzer, as its install.sh carries it.
 MORZER_PUBKEY=RWRS3ZHbN8tEYuF9Se2e+JzQMiUCoLbABbJtzSxBThI/U4Bhw+AR+IbQ
 MINISIGN=0.12
@@ -60,6 +62,12 @@ put() { # <file>...
 		as_root install -m 0755 "$@" "${bin_dir}/"
 	fi
 }
+
+if ! [[ ${MORZER} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+	[ "$(printf '%s\n' 0.13.0 "${MORZER}" | sort -V | head -1)" != 0.13.0 ]; then
+	echo "tools.sh: MORZER_VERSION must be a morzer release X.Y.Z, 0.13.0 or later, not '${MORZER}'" >&2
+	exit 2
+fi
 
 for tool in "$@"; do
 	case "${tool}" in

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-07
+
 ### Added
 
 - Pre-apply smoke hooks: `.github/smoke.d/pre-apply/*.sh` run inside `smoke.sh install`, after `morzer init` and the operator secrets and before the first `apply`, in `smoke-install`, in `smoke-update`'s install of the published bundle, and in `rehearse.sh`. A bundle that needs a domain, a parameter with no default, or a service it reaches before it can apply can now be smoke-tested. `smoke-update` checks out the product for them.
@@ -78,7 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/rehearse.sh` runs the smoke jobs' install, hooks, update and rollback on a workstation, from a product's root.
 - A product names its component keys, schema label, operator secrets and probe paths as inputs, and adds its own smoke checks as hooks in `.github/smoke.d`.
 
-[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/morzecrew/bundle-ci/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/morzecrew/bundle-ci/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/morzecrew/bundle-ci/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/morzecrew/bundle-ci/compare/v0.3.0...v0.3.1

@@ -21,7 +21,8 @@
 #   REHEARSE_OPERATOR_SECRETS  what bundle.yml's `operator-secrets` names
 #   REHEARSE_INIT_ARGS         `init-args`
 #   REHEARSE_HEALTH_PORT       `health-port` (default 8081)
-#   REHEARSE_PROBE_PATHS       `probe-paths` (default "/__platform_healthz /health")
+#   REHEARSE_PROBE_PATHS       `probe-paths` (default "/__platform_healthz /health";
+#                              empty skips the probe, as in CI)
 #   REHEARSE_HOOKS             `smoke-hooks` (default .github/smoke.d)
 set -euo pipefail
 
@@ -141,7 +142,7 @@ started=true
 {
 	printf 'SMOKE_PROJECT=%q\n' "${project}"
 	printf 'SMOKE_HEALTH_PORT=%q\n' "${REHEARSE_HEALTH_PORT:-8081}"
-	printf 'SMOKE_PROBE_PATHS=%q\n' "${REHEARSE_PROBE_PATHS:-/__platform_healthz /health}"
+	printf 'SMOKE_PROBE_PATHS=%q\n' "${REHEARSE_PROBE_PATHS-/__platform_healthz /health}"
 	printf 'SMOKE_OPERATOR_SECRETS=%q\n' "${REHEARSE_OPERATOR_SECRETS:-}"
 	printf 'SMOKE_INIT_ARGS=%q\n' "${REHEARSE_INIT_ARGS:-}"
 } >"${work}/smoke.env"

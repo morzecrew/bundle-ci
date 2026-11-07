@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `rehearse.sh` skips the HTTP probe when `REHEARSE_PROBE_PATHS` is empty, as `bundle.yml` does for an empty `probe-paths`. It probed the default paths instead, so a product with no health port, such as dotdash, failed the rehearsal at the first probe.
+
 ## [0.5.0] - 2026-11-07
 
 ### Added

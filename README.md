@@ -25,6 +25,10 @@ are pinned in `bundle/manifest.yaml` as `repo:tag@sha256:...`; the keys named
 by `components` (default `backend migrations frontend`) are the ones this
 pipeline moves.
 
+A dev version counts from the nearest `vX.Y.Z` tag, so the first push to `main`
+fails until one is reachable. Tag the repository's initial commit `v0.0.0`; a
+commit without the callers runs no workflow when tagged.
+
 ## The workflows
 
 | Workflow | Job | Needs |

@@ -63,6 +63,10 @@ on:
         description: Secrets only an operator sets, which the smoke install sets from random, space-separated
         type: string
         default: ""
+      init-args:
+        description: What each smoke install adds to `morzer init`, split on whitespace, such as --domain and a --set for each parameter with no default
+        type: string
+        default: ""
       health-port:
         description: The edge's loopback health port the smoke jobs probe
         type: string
@@ -385,19 +389,24 @@ jobs:
       - name: Start the rig
         run: bash .bundle-ci/scripts/rig.sh start "${RIG}"
 
-      - name: Copy the tooling and the archive into the rig
+      # The smoke hooks go in before the install: its pre-apply hooks run
+      # inside it, between `init` and the first `apply`.
+      - name: Copy the tooling, the archive and the smoke hooks into the rig
         env:
           ARCHIVE: ${{ needs.build.outputs.archive }}
           PROJECT: ${{ needs.build.outputs.project }}
           HEALTH_PORT: ${{ inputs.health-port }}
           PROBE_PATHS: ${{ inputs.probe-paths }}
           OPERATOR_SECRETS: ${{ inputs.operator-secrets }}
+          INIT_ARGS: ${{ inputs.init-args }}
+          HOOKS: ${{ inputs.smoke-hooks }}
         run: |
           {
             printf 'SMOKE_PROJECT=%q\n' "${PROJECT}"
             printf 'SMOKE_HEALTH_PORT=%q\n' "${HEALTH_PORT}"
             printf 'SMOKE_PROBE_PATHS=%q\n' "${PROBE_PATHS}"
             printf 'SMOKE_OPERATOR_SECRETS=%q\n' "${OPERATOR_SECRETS}"
+            printf 'SMOKE_INIT_ARGS=%q\n' "${INIT_ARGS}"
           } >"${RUNNER_TEMP}/smoke.env"
           rig() { bash .bundle-ci/scripts/rig.sh "$@"; }
           rig cp "${RIG}" "${RUNNER_TEMP}/smoke.env" /rig/smoke.env
@@ -405,6 +414,9 @@ jobs:
             rig cp "${RIG}" ".bundle-ci/scripts/${script}" "/rig/${script}"
           done
           rig cp "${RIG}" "${RUNNER_TEMP}/dist/${ARCHIVE}" "/rig/dist/${ARCHIVE}"
+          if [ -d "${HOOKS}" ]; then
+            rig cp "${RIG}" "${HOOKS}" /rig/smoke.d
+          fi
 
       # A self-hosted runner keeps every image a bundle pinned on its disk, and
       # a rig loads them from there: the registry is asked only for what this
@@ -459,7 +471,6 @@ jobs:
             exit 0
           fi
           rig() { bash .bundle-ci/scripts/rig.sh "$@"; }
-          rig cp "${RIG}" "${HOOKS}" /rig/smoke.d
           for hook in "${hooks[@]}"; do
             name=$(basename "${hook}")
             echo "::group::${name}"
@@ -487,6 +498,13 @@ jobs:
     env:
       RIG: ${{ needs.build.outputs.project }}-smoke-${{ github.run_id }}-${{ github.run_attempt }}-update
     steps:
+      # The product's checkout carries its pre-apply hooks, which the install
+      # of the published bundle runs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: morzecrew/bundle-ci
@@ -566,12 +584,15 @@ jobs:
           HEALTH_PORT: ${{ inputs.health-port }}
           PROBE_PATHS: ${{ inputs.probe-paths }}
           OPERATOR_SECRETS: ${{ inputs.operator-secrets }}
+          INIT_ARGS: ${{ inputs.init-args }}
+          HOOKS: ${{ inputs.smoke-hooks }}
         run: |
           {
             printf 'SMOKE_PROJECT=%q\n' "${PROJECT}"
             printf 'SMOKE_HEALTH_PORT=%q\n' "${HEALTH_PORT}"
             printf 'SMOKE_PROBE_PATHS=%q\n' "${PROBE_PATHS}"
             printf 'SMOKE_OPERATOR_SECRETS=%q\n' "${OPERATOR_SECRETS}"
+            printf 'SMOKE_INIT_ARGS=%q\n' "${INIT_ARGS}"
           } >"${RUNNER_TEMP}/smoke.env"
           rig() { bash .bundle-ci/scripts/rig.sh "$@"; }
           rig cp "${RIG}" "${RUNNER_TEMP}/smoke.env" /rig/smoke.env
@@ -580,6 +601,9 @@ jobs:
           done
           rig cp "${RIG}" "${PUBLISHED}" "/rig/published/$(basename "${PUBLISHED}")"
           rig cp "${RIG}" "${RUNNER_TEMP}/dist/${ARCHIVE}" "/rig/dist/${ARCHIVE}"
+          if [ -d "${HOOKS}" ]; then
+            rig cp "${RIG}" "${HOOKS}" /rig/smoke.d
+          fi
 
       # As smoke-install's: the published bundle's pins and the new one's.
       - name: Load the pinned images from the runner's cache

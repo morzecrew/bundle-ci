@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Pre-apply smoke hooks: `.github/smoke.d/pre-apply/*.sh` run inside `smoke.sh install`, after `morzer init` and the operator secrets and before the first `apply`, in `smoke-install`, in `smoke-update`'s install of the published bundle, and in `rehearse.sh`. A bundle that needs a domain, a parameter with no default, or a service it reaches before it can apply can now be smoke-tested. `smoke-update` checks out the product for them.
+- `init-args` (`REHEARSE_INIT_ARGS` for `rehearse.sh`): what each smoke install adds to `morzer init`, such as `--domain` and a `--set` for each parameter with no default, which `init` refuses without.
+
+### Changed
+
+- The rig and the build install morzer 0.12.0, up from 0.9.0, so a bundle whose `min_manager_version` is above 0.9.0 can be built and smoke-tested.
+
 ## [0.4.1] - 2026-10-30
 
 ### Fixed

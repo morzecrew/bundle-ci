@@ -17,6 +17,7 @@ and whatever only it checks. Everything else lives here, once.
 | `bundle/` | the morzer bundle: `manifest.yaml`, Compose, secrets schema, hooks |
 | `components.yaml` | `rollback_safe` of each component, which a release declares together |
 | `.github/smoke.d/*.sh` | the product's own smoke checks, run in the rig after the install |
+| `.github/smoke.d/pre-apply/*.sh` | what the rig needs before the first `apply` and `init` does not take: a service the product reaches, a value only the rig knows |
 | `.github/workflows/{main,release,pr,retention}.yml` | the callers below |
 
 The bundle is published to `ghcr.io/<owner>/<repository>`. Its component images
@@ -194,6 +195,7 @@ jobs:
 | `schema-image` | `migrations` | the key whose image's label is the schema the release produces; empty when none |
 | `schema-label` | `tech.morze.<metadata.name>.schema` | that label |
 | `operator-secrets` | — | secrets only an operator sets; the smoke install sets each from random |
+| `init-args` | — | what each smoke install adds to `morzer init`, split on whitespace: `--domain`, a `--set` for each parameter with no default, which `init` refuses without |
 | `health-port`, `probe-paths` | `8081`, `/__platform_healthz /health` | what a probe asks the edge's loopback port for; empty `probe-paths` for a bundle that serves no HTTP, which leaves its manifest's health checks, run at every apply |
 | `smoke-hooks` | `.github/smoke.d` | the product's smoke hooks |
 | `dev-pubkey`, `release-pubkey` | — | the public keys the dev and release builds are verified with, and `smoke-update` trusts the published bundle by |
@@ -249,6 +251,23 @@ sudo morzer --verbose task run repair
 ```
 
 A hook is the product's own code and runs as root; it never prints a secret.
+
+`pre-apply/*.sh` in the same directory run earlier, inside `smoke.sh install`:
+after `morzer init` and the operator secrets, before the first `apply`, in
+name order. A failing one stops the install. They give the rig what a real
+machine has before its first apply and a rig does not: a service the product
+reaches, a value only the rig knows. What `init` itself refuses without, a
+domain or a parameter with no default, goes in `init-args`.
+
+```bash
+# .github/smoke.d/pre-apply/10-rig.sh
+. /rig/smoke-lib.sh
+sudo docker run -d --name rig-mail -p 2525:25 <a mail sink>
+sudo morzer config set smtp_host="$(ip -4 -o addr show docker0 | awk '{ sub("/.*", "", $4); print $4 }')"
+```
+
+They also run when `smoke-update` installs the published bundle, so they must
+fit it as well as the new one.
 
 ### Rehearsing on a workstation
 

@@ -15,8 +15,11 @@
 # `install` and `update` first pull every image the archive pins, retrying,
 # because a registry that drops one connection fails morzer's own pull.
 # `install` trusts every key it is given and refuses an unsigned release. It
-# sets each of SMOKE_OPERATOR_SECRETS, the secrets only an operator sets, from
-# `random`; `init` generates the rest, and nothing here prints a secret.
+# adds SMOKE_INIT_ARGS to `morzer init`, then sets each of
+# SMOKE_OPERATOR_SECRETS, the secrets only an operator sets, from `random`;
+# `init` generates the rest, and nothing here prints a secret. Last, before the
+# first `apply`, it runs the product's pre-apply hooks,
+# SMOKE_HOOKS/pre-apply/*.sh, in name order.
 # `rollback` passes when the rollback succeeds, or when morzer refuses it
 # (exit 9) and either the new archive declares `rollback_safe: false` or the
 # two archives produce different database schemas.
@@ -35,18 +38,28 @@ set -euo pipefail
 install_release() {
 	local archive=$1 key name
 	shift
-	local keys=()
+	local keys=() init_args=()
 	for key in "$@"; do
 		[ -n "${key}" ] && keys+=(--signing-key "${key}")
 	done
 	[ ${#keys[@]} -gt 0 ] || die "install needs at least one signing key"
+	read -ra init_args <<<"${SMOKE_INIT_ARGS}"
 
 	pull_images "${archive}"
 	sudo morzer init --mode dev --release "${archive}" --require-signature \
-		--no-recovery-recipient --install-units=false "${keys[@]}"
+		--no-recovery-recipient --install-units=false "${keys[@]}" ${init_args[@]+"${init_args[@]}"}
 
 	for name in ${SMOKE_OPERATOR_SECRETS}; do
 		random | sudo morzer secret set "${name}"
+	done
+
+	# What a machine has before its first apply and a rig does not: a domain,
+	# a parameter with no default, a service the product reaches.
+	local hook
+	for hook in "${SMOKE_HOOKS}"/pre-apply/*.sh; do
+		[ -f "${hook}" ] || continue
+		echo "smoke.sh: pre-apply hook ${hook##*/}"
+		bash "${hook}" || die "pre-apply hook ${hook##*/} failed"
 	done
 
 	# --verbose: morzer prints a one-shot's output, a migration's error, only then.

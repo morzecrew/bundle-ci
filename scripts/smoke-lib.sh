@@ -12,6 +12,11 @@
 #                           checks are then all a probe has
 #   SMOKE_OPERATOR_SECRETS  the secrets only an operator sets, which `install`
 #                           sets from `random`, space-separated
+#   SMOKE_INIT_ARGS         what `install` adds to `morzer init`, split on
+#                           whitespace: --domain, --set for a parameter with
+#                           no default
+#   SMOKE_HOOKS             where the product's smoke hooks are (default
+#                           /rig/smoke.d); `install` runs its pre-apply/*.sh
 #
 # A hook starts with `. /rig/smoke-lib.sh` and has `die`, `random`,
 # `service_container` and `probe`. Nothing here, and nothing a hook does, may
@@ -25,6 +30,8 @@ fi
 SMOKE_HEALTH_PORT=${SMOKE_HEALTH_PORT:-8081}
 SMOKE_PROBE_PATHS=${SMOKE_PROBE_PATHS-/__platform_healthz /health}
 SMOKE_OPERATOR_SECRETS=${SMOKE_OPERATOR_SECRETS:-}
+SMOKE_INIT_ARGS=${SMOKE_INIT_ARGS:-}
+SMOKE_HOOKS=${SMOKE_HOOKS:-/rig/smoke.d}
 
 die() {
 	echo "${0##*/}: $*" >&2

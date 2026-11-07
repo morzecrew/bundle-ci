@@ -1,5 +1,5 @@
-# A release's first job: refuse a tag that is not `vX.Y.Z` on the product's
-# main, and name the version it releases.
+# A release's first job: refuse a tag that is not `<tag-prefix>X.Y.Z` (vX.Y.Z
+# by default) on the product's main, and name the version it releases.
 name: guard
 
 on:
@@ -9,6 +9,10 @@ on:
         description: The runner label the job runs on
         type: string
         default: ubuntu-24.04
+      tag-prefix:
+        description: What precedes X.Y.Z in the bundle's release tags
+        type: string
+        default: v
     outputs:
       version:
         description: The version the tag releases, X.Y.Z
@@ -51,16 +55,19 @@ jobs:
       - name: Trust the workspace
         run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
-      - name: Refuse a tag that is not vX.Y.Z on main
+      - name: Refuse a tag that is not <tag-prefix>X.Y.Z on main
         id: tag
+        env:
+          PREFIX: ${{ inputs.tag-prefix }}
         run: |
           tag=${GITHUB_REF_NAME}
           [ "${GITHUB_REF_TYPE}" = tag ] || { echo "::error::a release runs on a tag, not ${GITHUB_REF_TYPE} ${tag}"; exit 1; }
-          [[ ${tag} =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-            || { echo "::error::${tag} is not vX.Y.Z"; exit 1; }
+          version=${tag#"${PREFIX}"}
+          [[ ${tag} == "${PREFIX}${version}" && ${version} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+            || { echo "::error::${tag} is not ${PREFIX}X.Y.Z"; exit 1; }
           git merge-base --is-ancestor "${GITHUB_SHA}" origin/main \
             || { echo "::error::${tag} does not point at a commit on main"; exit 1; }
-          echo "version=${tag#v}" >>"${GITHUB_OUTPUT}"
+          echo "version=${version}" >>"${GITHUB_OUTPUT}"
 
       # The steps above ran as root over the runner's mounted workspace, so
       # its files are root's now; the runner's next job on the host could

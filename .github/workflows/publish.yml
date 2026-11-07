@@ -23,6 +23,10 @@ on:
         description: "Tag to move after publishing: main or stable"
         type: string
         required: true
+      package:
+        description: The bundle's package under ghcr.io/<owner>; empty is the product repository's name
+        type: string
+        default: ""
       images:
         description: "Component images (`repo@digest`, space-separated) to tag `bundle-<version>` before publishing; empty tags none"
         type: string
@@ -98,8 +102,10 @@ jobs:
           ARCHIVE: ${{ inputs.archive }}
           CHANNEL: ${{ inputs.channel }}
           IMAGES: ${{ inputs.images }}
+          PACKAGE: ${{ inputs.package }}
         run: |
-          repo="ghcr.io/${GITHUB_REPOSITORY,,}"
+          package=${PACKAGE:-${GITHUB_REPOSITORY#*/}}
+          repo="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${package,,}"
           scripts=${GITHUB_WORKSPACE}/.bundle-ci/scripts
           status=0
           bash "${scripts}/registry.sh" exists "${repo}:${VERSION}" || status=$?

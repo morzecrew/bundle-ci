@@ -26,6 +26,7 @@
 #
 # Environment:
 #   PIN_ROOT          the product repository (default: the current directory)
+#   PIN_BUNDLE_DIR    the bundle's directory under it (default: bundle)
 #   RESOLVE           the resolver to call (default: resolve.sh beside this script)
 #   PIN_COMPONENTS    the `images:` keys to pin (default: backend migrations frontend)
 #   PIN_SCHEMA_IMAGE  the key whose image carries the schema label (default:
@@ -41,7 +42,7 @@ resolve=${RESOLVE:-"${self_dir}/resolve.sh"}
 pin_components=${PIN_COMPONENTS:-backend migrations frontend}
 schema_image=${PIN_SCHEMA_IMAGE-migrations}
 
-manifest=${root}/bundle/manifest.yaml
+manifest=${root}/${PIN_BUNDLE_DIR:-bundle}/manifest.yaml
 components=${root}/components.yaml
 pinned_from=${PIN_FROM:-${manifest}}
 

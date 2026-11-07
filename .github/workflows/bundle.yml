@@ -31,6 +31,18 @@ on:
         description: The paths whose last commit names the dev version, space-separated; a product whose code shares the repository adds the code's
         type: string
         default: bundle
+      bundle-dir:
+        description: The bundle's directory; a repository with a second bundle names it, with that bundle's own version-paths, package and tag-prefix
+        type: string
+        default: bundle
+      package:
+        description: The bundle's package under ghcr.io/<owner>; empty is the product repository's name
+        type: string
+        default: ""
+      tag-prefix:
+        description: What precedes X.Y.Z in the bundle's release tags; its dev versions count from the nearest such tag
+        type: string
+        default: v
       channel:
         description: "Channel the caller publishes to (main or stable); empty skips the published-version check"
         type: string
@@ -140,6 +152,7 @@ jobs:
       proceed: ${{ steps.existing.outputs.proceed }}
       images: ${{ steps.archive.outputs.images }}
       project: ${{ steps.build.outputs.project }}
+      package: ${{ steps.package.outputs.ref }}
     steps:
       - name: Install git, curl, ca-certificates and jq
         run: |
@@ -149,7 +162,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
-          # scripts/version.sh describes the last bundle/ commit from the reachable tags.
+          # scripts/version.sh describes the last bundle commit from the reachable tags.
           fetch-depth: 0
           persist-credentials: false
 
@@ -179,13 +192,22 @@ jobs:
           printf %s "${TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           echo "DOCKER_CONFIG=${DOCKER_CONFIG}" >>"${GITHUB_ENV}"
 
-      # Named before the pin, which edits bundle/manifest.yaml: version.sh
-      # refuses a change no commit carries.
+      - name: Name the package
+        id: package
+        env:
+          PACKAGE: ${{ inputs.package }}
+        run: |
+          package=${PACKAGE:-${GITHUB_REPOSITORY#*/}}
+          echo "ref=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${package,,}" >>"${GITHUB_OUTPUT}"
+
+      # Named before the pin, which edits the manifest: version.sh refuses a
+      # change no commit carries.
       - name: Name the version
         id: version
         env:
           VERSION: ${{ inputs.version }}
           VERSION_PATHS: ${{ inputs.version-paths }}
+          VERSION_TAG_PREFIX: ${{ inputs.tag-prefix }}
         run: |
           # A commit outside version-paths names the version already built,
           # so its run finds that version published.
@@ -198,6 +220,9 @@ jobs:
           PIN: ${{ inputs.pin }}
           VERSION: ${{ steps.version.outputs.version }}
           VERSION_PATHS: ${{ inputs.version-paths }}
+          VERSION_TAG_PREFIX: ${{ inputs.tag-prefix }}
+          PACKAGE_REF: ${{ steps.package.outputs.ref }}
+          PIN_BUNDLE_DIR: ${{ inputs.bundle-dir }}
           PIN_COMPONENTS: ${{ inputs.components }}
           PIN_SCHEMA_IMAGE: ${{ inputs.schema-image }}
           SCHEMA_LABEL: ${{ inputs.schema-label }}
@@ -208,8 +233,8 @@ jobs:
           promote)
             # The dev bundle this commit was published as, named as it was
             # before the release's tag existed.
-            dev=$(VERSION_EXCLUDE="v${VERSION}" bash .bundle-ci/scripts/version.sh)
-            ref="ghcr.io/${GITHUB_REPOSITORY,,}:${dev}"
+            dev=$(VERSION_EXCLUDE="${VERSION_TAG_PREFIX}${VERSION}" bash .bundle-ci/scripts/version.sh)
+            ref="${PACKAGE_REF}:${dev}"
             status=0
             bash .bundle-ci/scripts/registry.sh exists "${ref}" || status=$?
             case "${status}" in
@@ -231,17 +256,18 @@ jobs:
         id: build
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          BUNDLE_DIR: ${{ inputs.bundle-dir }}
         run: |
           set -- --version "${VERSION}"
           # Under --json morzer's error is only in the envelope on stdout.
-          if ! out=$(morzer release build bundle "$@" --json); then
+          if ! out=$(morzer release build "${BUNDLE_DIR}" "$@" --json); then
             printf '%s\n' "${out}" >&2
             exit 1
           fi
           version=$(jq -r '.data.version' <<<"${out}")
           echo "version=${version}" >>"${GITHUB_OUTPUT}"
           # The Compose project the smoke jobs look a service up by.
-          project=$(yq -r '.runtimes.compose.options.project // .metadata.name' bundle/manifest.yaml)
+          project=$(yq -r '.runtimes.compose.options.project // .metadata.name' "${BUNDLE_DIR}/manifest.yaml")
           echo "project=${project}" >>"${GITHUB_OUTPUT}"
 
       - name: Refuse a published version
@@ -250,8 +276,9 @@ jobs:
           VERSION: ${{ steps.build.outputs.version }}
           CHANNEL: ${{ inputs.channel }}
           ON_EXISTING: ${{ inputs.on-existing }}
+          PACKAGE_REF: ${{ steps.package.outputs.ref }}
         run: |
-          ref="ghcr.io/${GITHUB_REPOSITORY,,}:${VERSION}"
+          ref="${PACKAGE_REF}:${VERSION}"
           proceed=true
           if [ -n "${CHANNEL}" ]; then
             status=0
@@ -281,6 +308,7 @@ jobs:
           MINISIGN_KEY: ${{ secrets.minisign-key }}
           DEV_PUBKEY: ${{ inputs.dev-pubkey }}
           RELEASE_PUBKEY: ${{ inputs.release-pubkey }}
+          BUNDLE_DIR: ${{ inputs.bundle-dir }}
         run: |
           umask 077
           key="${RUNNER_TEMP}/minisign.key"
@@ -299,8 +327,8 @@ jobs:
             ;;
           *) echo "::error::unknown signing '${SIGNING}'"; exit 1 ;;
           esac
-          minisign -S -s "${key}" -m bundle/SHA256SUMS >/dev/null
-          morzer release verify bundle --signing-key "${pubkey}"
+          minisign -S -s "${key}" -m "${BUNDLE_DIR}/SHA256SUMS" >/dev/null
+          morzer release verify "${BUNDLE_DIR}" --signing-key "${pubkey}"
           echo "pubkey=${pubkey}" >>"${GITHUB_OUTPUT}"
 
       - name: Archive
@@ -310,10 +338,11 @@ jobs:
           VERSION: ${{ steps.build.outputs.version }}
           PROJECT: ${{ steps.build.outputs.project }}
           COMPONENTS: ${{ inputs.components }}
+          BUNDLE_DIR: ${{ inputs.bundle-dir }}
         run: |
           archive="${PROJECT}-${VERSION}.tar.zst"
           mkdir -p "${RUNNER_TEMP}/dist"
-          if ! out=$(morzer release archive bundle -o "${RUNNER_TEMP}/dist/${archive}" --json); then
+          if ! out=$(morzer release archive "${BUNDLE_DIR}" -o "${RUNNER_TEMP}/dist/${archive}" --json); then
             printf '%s\n' "${out}" >&2
             exit 1
           fi
@@ -326,7 +355,7 @@ jobs:
             echo "| Component | Tag | Digest |"
             echo "|---|---|---|"
             for key in ${COMPONENTS}; do
-              pin=$(yq -r ".images.${key}" bundle/manifest.yaml)
+              pin=$(yq -r ".images.${key}" "${BUNDLE_DIR}/manifest.yaml")
               image=${pin%@*}
               images+=("${image%:*}@${pin##*@}")
               echo "| ${key} | \`${image##*:}\` | \`${pin##*@}\` |"
@@ -539,13 +568,14 @@ jobs:
           CHANNEL: ${{ inputs.channel }}
           DEV_PUBKEY: ${{ inputs.dev-pubkey }}
           RELEASE_PUBKEY: ${{ inputs.release-pubkey }}
+          PACKAGE_REF: ${{ needs.build.outputs.package }}
         run: |
           if [ "${CHANNEL}" = stable ]; then
             tag=stable pubkey=${RELEASE_PUBKEY}
           else
             tag=main pubkey=${DEV_PUBKEY}
           fi
-          ref="ghcr.io/${GITHUB_REPOSITORY,,}:${tag}"
+          ref="${PACKAGE_REF}:${tag}"
           status=0
           bash .bundle-ci/scripts/registry.sh exists "${ref}" || status=$?
           case "${status}" in

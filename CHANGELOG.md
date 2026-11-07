@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A second bundle in one repository. `bundle.yml` takes `bundle-dir` (default `bundle`), `package` (default the repository's name) and `tag-prefix` (default `v`); `publish.yml` takes `package` and `guard.yml` takes `tag-prefix`, as `retention.yml` already took `package`. `rehearse.sh` reads `REHEARSE_BUNDLE_DIR`, and `pin.sh` reads `PIN_BUNDLE_DIR`.
+- `version.sh` reads `VERSION_TAG_PREFIX`: only tags `<prefix>X.Y.Z` are described, and any other tag is passed over.
+
+### Changed
+
+- `bundle.yml` passes `tag-prefix` to `version.sh`, so a dev version counts from the nearest `vX.Y.Z` tag and passes over any other tag. A nearer tag that is not `vX.Y.Z`, such as a bare `X.Y.Z` or another bundle's, no longer refuses the build.
+
 ### Fixed
 
 - `rehearse.sh` skips the HTTP probe when `REHEARSE_PROBE_PATHS` is empty, as `bundle.yml` does for an empty `probe-paths`. It probed the default paths instead, so a product with no health port, such as dotdash, failed the rehearsal at the first probe.

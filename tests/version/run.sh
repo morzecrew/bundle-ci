@@ -12,8 +12,9 @@
 # with the reason on stderr when `bundle/` has no commit, no reachable tag, a
 # nearest tag that is not `X.Y.Z` or `vX.Y.Z`, or an untracked or modified
 # file. VERSION_PATHS adds paths whose commits name a version, and whose dirt
-# is refused, and VERSION_EXCLUDE skips a tag on the commit. Success prints
-# one line on stdout and nothing on stderr.
+# is refused, VERSION_EXCLUDE skips a tag on the commit, and VERSION_TAG_PREFIX
+# describes only the tags `<prefix>X.Y.Z`, passing over any other. Success
+# prints one line on stdout and nothing on stderr.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -224,6 +225,32 @@ git_in "${n}" tag v0.1.0
 expect_version "the release's tag is the nearest without it" "${n}" \
 	"0.1.1-dev.0.g$(described_sha "${n}" HEAD)"
 VERSION_EXCLUDE=v0.1.0 expect_version "skipping it names the version published before" "${n}" "${published}"
+
+echo "# VERSION_TAG_PREFIX: two bundles in one repository count from their own tags"
+o=$(new_repo o)
+write "${o}" top.txt "top"
+commit "${o}" "top"
+git_in "${o}" tag v0.0.0
+git_in "${o}" tag canary-v0.0.0
+write "${o}" canary/probe.txt "probe"
+commit "${o}" "canary"
+git_in "${o}" tag canary-v0.3.0
+write "${o}" bundle/probe.txt "probe"
+commit "${o}" "bundle"
+VERSION_TAG_PREFIX=v expect_version "a nearer tag of the other bundle is passed over" "${o}" \
+	"0.0.1-dev.2.g$(described_sha "${o}" HEAD)"
+expect_refusal "without a prefix that nearer tag is read, and refused" "${o}" "is not X.Y.Z"
+VERSION_TAG_PREFIX=canary-v VERSION_PATHS=canary expect_version "the other bundle counts from its tag" "${o}" \
+	"0.3.1-dev.0.g$(git_in "${o}" describe --tags --long --match 'canary-v[0-9]*' HEAD~1 | sed -E 's/.*-g//')"
+VERSION_TAG_PREFIX=canary-v VERSION_PATHS=canary VERSION_EXCLUDE=canary-v0.3.0 expect_version \
+	"and a release skips its own tag" "${o}" \
+	"0.0.1-dev.1.g$(git_in "${o}" describe --tags --long --match 'canary-v[0-9]*' HEAD~1 | sed -E 's/.*-g//')"
+p2=$(only_bundle p2)
+git_in "${p2}" tag v0.0.0
+VERSION_TAG_PREFIX=canary-v expect_refusal "no tag with the prefix is refused" "${p2}" "no tag canary-vX.Y.Z is reachable"
+git_in "${p2}" tag canary-v0.1
+VERSION_TAG_PREFIX=canary-v expect_refusal "a prefixed tag that is not X.Y.Z is refused" "${p2}" "is not canary-vX.Y.Z"
+err_names "canary-v0.1" "the reason names the tag with its prefix"
 
 # A workflow runs the script from bundle-ci's checkout with the product's
 # checkout as its working directory, so the default is the current directory.

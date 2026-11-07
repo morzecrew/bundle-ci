@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The rig and the build install morzer 0.13.0, up from 0.12.0, so a bundle that declares `compatibility.database: none`, which needs 0.13.0, can be built and smoke-tested. Under 0.13.0, `update` refuses a release older than the one installed, and `doctor` exits 3 when a running service is unhealthy or a release health check fails.
+
 ## [0.6.0] - 2026-11-07
 
 ### Added

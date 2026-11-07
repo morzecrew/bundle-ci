@@ -37,6 +37,7 @@ commit without the callers runs no workflow when tagged.
 | `guard.yml` | refuse a release tag that is not `vX.Y.Z` on main; outputs `version` | `contents: read` |
 | `bundle.yml` | build, sign, `smoke-install` and `smoke-update`; outputs `version`, `archive`, `proceed`, `images` | `contents: read`, `packages: read` |
 | `publish.yml` | push `:<version>`, move the channel; for a release, first tag each component image `bundle-<version>` | `contents: read`, `packages: write` |
+| `github-release.yml` | for a release, create the tag's GitHub release: the version's CHANGELOG section as notes, the signed archive attached | `contents: write` |
 | `retention.yml` | keep the last dev versions and drop untagged ones | a token secret that may delete package versions |
 
 They are not nested: a product's workflow calls each as a job, so every
@@ -139,6 +140,14 @@ jobs:
       archive: ${{ needs.bundle.outputs.archive }}
       channel: stable
       images: ${{ needs.bundle.outputs.images }}
+      runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
+  github-release:
+    needs: [bundle, publish]
+    permissions: { contents: write }
+    uses: morzecrew/bundle-ci/.github/workflows/github-release.yml@v0.7.0
+    with:
+      version: ${{ needs.bundle.outputs.version }}
+      archive: ${{ needs.bundle.outputs.archive }}
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
 ```
 
@@ -308,6 +317,10 @@ product repository to hold the **Write** role under each component package's
 git tag vA.B.C <commit> && git push origin vA.B.C
 ```
 
+Seal the version's CHANGELOG section first: `github-release.yml` takes the
+notes from `## [A.B.C]` and refuses a tag without one, after the bundle is
+published.
+
 ### A product in one repository
 
 When a product's code lives beside its bundle, one repository builds both, and
@@ -406,7 +419,8 @@ inputs wherever the workflow they call takes one:
 |---|---|---|
 | `bundle-dir` (`bundle.yml`) | `bundle` | `canary` |
 | `version-paths` (`bundle.yml`) | `bundle` | `canary` |
-| `package` (`bundle.yml`, `publish.yml`, `retention.yml`) | the repository's name | `dotdash-canary` |
+| `package` (`bundle.yml`, `publish.yml`, `github-release.yml`, `retention.yml`) | the repository's name | `dotdash-canary` |
+| `changelog` (`github-release.yml`) | `CHANGELOG.md` | `canary/CHANGELOG.md` |
 | `tag-prefix` (`bundle.yml`, `guard.yml`) | `v` | `canary-v` |
 | `smoke-hooks` (`bundle.yml`) | `.github/smoke.d` | `.github/canary-smoke.d` |
 

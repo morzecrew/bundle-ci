@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `github-release.yml`: a product's release workflow calls it after `publish.yml` to create the tag's GitHub release, with the version's CHANGELOG section as its notes and the signed bundle archive attached. It takes `package` and `changelog`, for a second bundle with a CHANGELOG of its own.
+
 ## [0.7.0] - 2026-11-07
 
 ### Added

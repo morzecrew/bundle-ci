@@ -66,6 +66,9 @@ EOF
 cat >"${bin}/morzer" <<'EOF'
 #!/usr/bin/env bash
 echo "morzer $*" >>"${LOG}"
+# Read the value as morzer does: unread, the writer of the pipe could die of
+# SIGPIPE, and smoke.sh's pipefail stopped the install before its hooks.
+[ "$1 $2" != "secret set" ] || cat >/dev/null
 EOF
 cat >"${bin}/sleep" <<'EOF'
 #!/usr/bin/env bash

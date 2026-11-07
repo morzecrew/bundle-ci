@@ -394,6 +394,28 @@ jobs:
 
 `component-retention.yml` keeps the image's package beside the bundle's.
 
+### A second bundle in one repository
+
+A repository can publish another bundle beside `bundle/`, such as a small
+companion product that runs on other machines. Each bundle has its own callers
+(`<name>-main.yml`, `<name>-release.yml`, `<name>-pr.yml`), which set these
+inputs wherever the workflow they call takes one:
+
+| Input | `bundle/` (the defaults) | the second bundle, e.g. |
+|---|---|---|
+| `bundle-dir` (`bundle.yml`) | `bundle` | `canary` |
+| `version-paths` (`bundle.yml`) | `bundle` | `canary` |
+| `package` (`bundle.yml`, `publish.yml`, `retention.yml`) | the repository's name | `dotdash-canary` |
+| `tag-prefix` (`bundle.yml`, `guard.yml`) | `v` | `canary-v` |
+| `smoke-hooks` (`bundle.yml`) | `.github/smoke.d` | `.github/canary-smoke.d` |
+
+Its releases are tags `canary-vX.Y.Z`, which the first bundle's
+`release.yml` (`tags: ["v*"]`) never sees. A dev version counts from the
+nearest tag with its own prefix, and any other tag is passed over, so the
+second bundle needs its own seed: tag the initial commit `canary-v0.0.0` too.
+The two bundles share the repository's signing keys. `pin.yml` pins only
+`bundle/`.
+
 ## A component repository
 
 A repository whose images a bundle pins calls two workflows:

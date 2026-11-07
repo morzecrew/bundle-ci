@@ -24,6 +24,9 @@
 #   REHEARSE_PROBE_PATHS       `probe-paths` (default "/__platform_healthz /health";
 #                              empty skips the probe, as in CI)
 #   REHEARSE_HOOKS             `smoke-hooks` (default .github/smoke.d)
+#   REHEARSE_BUNDLE_DIR        `bundle-dir` (default bundle); a second bundle
+#                              also needs --from, since its package is not the
+#                              repository's name
 set -euo pipefail
 
 scripts=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -52,7 +55,7 @@ Options:
 The workstation needs docker, oras logged in to ghcr.io, mikefarah's yq v4,
 git and tar. REHEARSE_PUBKEY must hold the minisign public key that signed the
 --from bundle; REHEARSE_OPERATOR_SECRETS, REHEARSE_INIT_ARGS,
-REHEARSE_HEALTH_PORT, REHEARSE_PROBE_PATHS and REHEARSE_HOOKS mirror
+REHEARSE_HEALTH_PORT, REHEARSE_PROBE_PATHS, REHEARSE_HOOKS and REHEARSE_BUNDLE_DIR mirror
 bundle.yml's inputs.
 EOF
 }
@@ -88,9 +91,10 @@ for tool in docker oras yq git tar bash; do
 	command -v "${tool}" >/dev/null || die "${tool} is not on PATH; see --help"
 done
 yq --version 2>/dev/null | grep -q mikefarah || die "yq on PATH is not mikefarah's yq v4; see --help"
-[ -f "${root}/bundle/manifest.yaml" ] || die "no bundle/manifest.yaml here; run from the product's root"
+bundle=${REHEARSE_BUNDLE_DIR:-bundle}
+[ -f "${root}/${bundle}/manifest.yaml" ] || die "no ${bundle}/manifest.yaml here; run from the product's root"
 
-project=$(yq -r '.runtimes.compose.options.project // .metadata.name' "${root}/bundle/manifest.yaml")
+project=$(yq -r '.runtimes.compose.options.project // .metadata.name' "${root}/${bundle}/manifest.yaml")
 name=${project}-rehearsal
 
 if [ -z "${from}" ]; then
@@ -154,7 +158,7 @@ in_rig bash /rig/tools.sh morzer sops age
 
 # The tree as git sees it, so nothing it ignores enters the rig.
 in_rig mkdir -p /rig/rehearsal /rig/dist /rig/published
-git -C "${root}" ls-files -z --cached --others --exclude-standard -- bundle \
+git -C "${root}" ls-files -z --cached --others --exclude-standard -- "${bundle}" \
 	| tar -C "${root}" --null -T - -cf - \
 	| bash "${rig}" cp "${name}" - /rig/rehearsal
 
@@ -165,19 +169,19 @@ echo "rehearse.sh: building ${version}"
 in_rig bash -c '
 	set -euo pipefail
 	cd /rig/rehearsal
-	if ! out=$(morzer release build bundle --version "$1" --json); then
+	if ! out=$(morzer release build "$3" --version "$1" --json); then
 		printf "%s\n" "${out}" >&2
 		exit 1
 	fi
 	umask 077
 	minisign -G -W -p rehearsal.pub -s rehearsal.key >/dev/null
-	minisign -S -s rehearsal.key -m bundle/SHA256SUMS >/dev/null
-	morzer release verify bundle --signing-key "$(sed -n 2p rehearsal.pub)"
-	if ! out=$(morzer release archive bundle -o "$2" --json); then
+	minisign -S -s rehearsal.key -m "$3/SHA256SUMS" >/dev/null
+	morzer release verify "$3" --signing-key "$(sed -n 2p rehearsal.pub)"
+	if ! out=$(morzer release archive "$3" -o "$2" --json); then
 		printf "%s\n" "${out}" >&2
 		exit 1
 	fi
-' rehearse "${version}" "${archive}"
+' rehearse "${version}" "${archive}" "${bundle}"
 pubkey=$(in_rig sed -n 2p /rig/rehearsal/rehearsal.pub)
 
 rig_published=/rig/published/$(basename "${published}")
@@ -227,7 +231,7 @@ load_image() {
 }
 
 {
-	yq -r '.images[]' "${root}/bundle/manifest.yaml"
+	yq -r '.images[]' "${root}/${bundle}/manifest.yaml"
 	yq -r '.images[]' "${work}/published-manifest.yaml"
 } | sort -u >"${work}/images"
 while read -r pin; do

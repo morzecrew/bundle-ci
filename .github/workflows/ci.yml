@@ -68,6 +68,9 @@ jobs:
       - name: Changed image tests
         run: bash tests/changed/run.sh
 
+      - name: Changelog section tests
+        run: bash tests/changelog/run.sh
+
   workflows:
     runs-on: ubuntu-24.04
     timeout-minutes: 15

@@ -361,20 +361,20 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: morzecrew/bundle-ci
+          ref: ${{ inputs.bundle-ci-ref }}
+          path: .bundle-ci
+          persist-credentials: false
+
       - name: Notes from the CHANGELOG and the images
         env:
           VERSION: ${{ needs.plan.outputs.version }}
           IMAGES: ${{ inputs.images }}
         run: |
           set -euo pipefail
-          # The section under `## [X.Y.Z]`, up to the next `## [`, without the
-          # link definitions the oldest section runs into.
-          awk -v v="${VERSION}" '
-            index($0, "## [" v "]") == 1 { on = 1; next }
-            on && /^## \[/ { exit }
-            on && !/^\[[^]]+\]: / { print }' CHANGELOG.md | sed -e '/./,$!d' >"${RUNNER_TEMP}/changes.md"
-          grep -q . "${RUNNER_TEMP}/changes.md" \
-            || { echo "::error::CHANGELOG.md has no section for ${VERSION}"; exit 1; }
+          bash .bundle-ci/scripts/changelog-section.sh CHANGELOG.md "${VERSION}" >"${RUNNER_TEMP}/changes.md"
           {
             echo "## Changelog"
             echo

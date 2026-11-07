@@ -1,0 +1,85 @@
+# A release's GitHub release, for a bundle repository: the notes are the
+# version's CHANGELOG section and the bundle's references, and the signed
+# archive bundle.yml built in the same run is attached. A product's release
+# workflow calls it after publish.yml. It is a workflow of its own because it
+# writes `contents`, which no other workflow asks a bundle repository for.
+name: github-release
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version bundle.yml built and publish.yml published
+        type: string
+        required: true
+      archive:
+        description: The archive's file name in the `bundle` artifact
+        type: string
+        required: true
+      package:
+        description: The bundle's package under ghcr.io/<owner>; empty is the product repository's name
+        type: string
+        default: ""
+      changelog:
+        description: The CHANGELOG whose `## [<version>]` section is the notes, such as a second bundle's own
+        type: string
+        default: CHANGELOG.md
+      runs-on:
+        description: The runner label the job runs on
+        type: string
+        default: ubuntu-24.04
+      bundle-ci-ref:
+        description: The bundle-ci ref whose scripts the job runs
+        type: string
+        default: v0.7.0 # bundle-ci-ref: a release rewrites this to its tag
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: morzecrew/bundle-ci
+          ref: ${{ inputs.bundle-ci-ref }}
+          path: .bundle-ci
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bundle
+          path: ${{ runner.temp }}/dist
+
+      - name: Notes from the CHANGELOG and the package
+        env:
+          VERSION: ${{ inputs.version }}
+          PACKAGE: ${{ inputs.package }}
+          CHANGELOG: ${{ inputs.changelog }}
+        run: |
+          set -euo pipefail
+          package=${PACKAGE:-${GITHUB_REPOSITORY#*/}}
+          ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${package,,}"
+          {
+            echo "## Changelog"
+            echo
+            bash .bundle-ci/scripts/changelog-section.sh "${CHANGELOG}" "${VERSION}"
+            echo
+            echo "## Bundle"
+            echo
+            echo "\`${ref}:${VERSION}\`, which \`:stable\` moved to. The archive attached is the same bundle, signed with the release key."
+          } >"${RUNNER_TEMP}/notes.md"
+          cat "${RUNNER_TEMP}/notes.md"
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ inputs.archive }}
+        run: gh release create "${GITHUB_REF_NAME}" --verify-tag --title "${GITHUB_REF_NAME}" --notes-file "${RUNNER_TEMP}/notes.md" "${RUNNER_TEMP}/dist/${ARCHIVE}"

@@ -10,7 +10,10 @@
 # once before morzer runs, and nothing else; that an image already present is
 # not; that `pins` lists them and `manifest` prints the manifest; that a pull
 # which fails is tried again until it succeeds; and that one which fails 4
-# times stops the update before morzer runs.
+# times stops the update before morzer runs. And that `install` runs the
+# product's pre-apply hooks in name order, between the operator secrets and
+# the first `apply`, and stops at one that fails; and that it adds
+# SMOKE_INIT_ARGS to `morzer init`.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -149,6 +152,57 @@ case "${out}" in
 *"no probe paths"*) ok "and says so" ;;
 *) fail "and says so: ${out}" ;;
 esac
+
+echo "# install runs the pre-apply hooks after init and the operator secrets"
+hooks=${work}/hooks
+mkdir -p "${hooks}/pre-apply"
+cat >"${hooks}/pre-apply/20-b.sh" <<'EOF'
+echo "hook b" >>"${LOG}"
+EOF
+cat >"${hooks}/pre-apply/10-a.sh" <<'EOF'
+echo "hook a" >>"${LOG}"
+EOF
+cat >"${hooks}/10-after.sh" <<'EOF'
+echo "not pre-apply" >>"${LOG}"
+EOF
+install() { # install <hooks dir>
+	: >"${work}/log"
+	: >"${work}/fail"
+	: >"${work}/cached"
+	LOG="${work}/log" FAIL_PULLS="${work}/fail" CACHED="${work}/cached" SMOKE_ENV=/dev/null \
+		SMOKE_OPERATOR_SECRETS=admin_password SMOKE_HOOKS="$1" PATH="${bin}:${PATH}" \
+		bash "${repo}/scripts/smoke.sh" install "${archive}" RWQfakekey
+}
+calls() { grep -v '^docker' "${work}/log" | sed 's/^morzer init .*/morzer init/' | paste -sd'|' -; }
+install "${hooks}" >/dev/null 2>&1
+expect "in name order, between the secrets and apply" \
+	"morzer init|morzer secret set admin_password|hook a|hook b|morzer --verbose apply" "$(calls)"
+
+install "${work}/no-such-dir" >/dev/null 2>&1
+expect "none, and the install goes on" \
+	"morzer init|morzer secret set admin_password|morzer --verbose apply" "$(calls)"
+
+echo 'exit 3' >"${hooks}/pre-apply/15-fails.sh"
+if out=$(install "${hooks}" 2>&1); then
+	fail "a failing pre-apply hook stops the install: it succeeded"
+else
+	ok "a failing pre-apply hook stops the install"
+fi
+case "${out}" in
+*"pre-apply hook 15-fails.sh failed"*) ok "the refusal names the hook" ;;
+*) fail "the refusal names the hook: ${out}" ;;
+esac
+expect "apply never runs" 0 "$(grep -c '^morzer --verbose apply' "${work}/log")"
+
+echo "# install adds SMOKE_INIT_ARGS to morzer init"
+rm -f "${hooks}/pre-apply/15-fails.sh"
+: >"${work}/log"
+LOG="${work}/log" FAIL_PULLS="${work}/fail" CACHED="${work}/cached" SMOKE_ENV=/dev/null \
+	SMOKE_INIT_ARGS="--domain demo.test  --set smtp_host=mail.test" PATH="${bin}:${PATH}" \
+	bash "${repo}/scripts/smoke.sh" install "${archive}" RWQfakekey >/dev/null 2>&1
+expect "after the signing key, one word each" \
+	"--signing-key RWQfakekey --domain demo.test --set smtp_host=mail.test" \
+	"$(sed -n 's/^morzer init .*--install-units=false //p' "${work}/log")"
 
 if [ "${failures}" -ne 0 ]; then
 	echo "${failures} check(s) failed" >&2

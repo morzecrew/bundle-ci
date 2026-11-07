@@ -19,6 +19,7 @@
 #   REHEARSE_PUBKEY            the minisign public key that signed --from
 #                              (the product's MINISIGN_DEV_PUBKEY for :main)
 #   REHEARSE_OPERATOR_SECRETS  what bundle.yml's `operator-secrets` names
+#   REHEARSE_INIT_ARGS         `init-args`
 #   REHEARSE_HEALTH_PORT       `health-port` (default 8081)
 #   REHEARSE_PROBE_PATHS       `probe-paths` (default "/__platform_healthz /health")
 #   REHEARSE_HOOKS             `smoke-hooks` (default .github/smoke.d)
@@ -49,8 +50,9 @@ Options:
 
 The workstation needs docker, oras logged in to ghcr.io, mikefarah's yq v4,
 git and tar. REHEARSE_PUBKEY must hold the minisign public key that signed the
---from bundle; REHEARSE_OPERATOR_SECRETS, REHEARSE_HEALTH_PORT,
-REHEARSE_PROBE_PATHS and REHEARSE_HOOKS mirror bundle.yml's inputs.
+--from bundle; REHEARSE_OPERATOR_SECRETS, REHEARSE_INIT_ARGS,
+REHEARSE_HEALTH_PORT, REHEARSE_PROBE_PATHS and REHEARSE_HOOKS mirror
+bundle.yml's inputs.
 EOF
 }
 
@@ -141,6 +143,7 @@ started=true
 	printf 'SMOKE_HEALTH_PORT=%q\n' "${REHEARSE_HEALTH_PORT:-8081}"
 	printf 'SMOKE_PROBE_PATHS=%q\n' "${REHEARSE_PROBE_PATHS:-/__platform_healthz /health}"
 	printf 'SMOKE_OPERATOR_SECRETS=%q\n' "${REHEARSE_OPERATOR_SECRETS:-}"
+	printf 'SMOKE_INIT_ARGS=%q\n' "${REHEARSE_INIT_ARGS:-}"
 } >"${work}/smoke.env"
 bash "${rig}" cp "${name}" "${work}/smoke.env" /rig/smoke.env
 for script in tools.sh smoke.sh smoke-lib.sh; do
@@ -238,11 +241,12 @@ smoke() {
 	fi
 }
 
+# Before the install, whose pre-apply hooks run between `init` and `apply`.
+[ ! -d "${root}/${hooks}" ] || bash "${rig}" cp "${name}" "${root}/${hooks}" /rig/smoke.d
 smoke install "${rig_published}" "${from_pubkey}" "${pubkey}"
 smoke probe
 shopt -s nullglob
 hook_files=("${root}/${hooks}"/*.sh)
-[ ${#hook_files[@]} -eq 0 ] || bash "${rig}" cp "${name}" "${root}/${hooks}" /rig/smoke.d
 for hook in "${hook_files[@]}"; do
 	hook_name=$(basename "${hook}")
 	echo "rehearse.sh: hook ${hook_name}"

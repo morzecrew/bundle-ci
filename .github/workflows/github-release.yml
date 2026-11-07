@@ -1,8 +1,10 @@
 # A release's GitHub release, for a bundle repository: the notes are the
 # version's CHANGELOG section and the bundle's references, and the signed
 # archive bundle.yml built in the same run is attached. A product's release
-# workflow calls it after publish.yml. It is a workflow of its own because it
-# writes `contents`, which no other workflow asks a bundle repository for.
+# workflow calls it after publish.yml. Two bundles released from one tag share
+# the release: whichever comes second attaches its archive to it. It is a
+# workflow of its own because it writes `contents`, which no other workflow
+# asks a bundle repository for.
 name: github-release
 
 on:
@@ -16,12 +18,8 @@ on:
         description: The archive's file name in the `bundle` artifact
         type: string
         required: true
-      package:
-        description: The bundle's package under ghcr.io/<owner>; empty is the product repository's name
-        type: string
-        default: ""
       changelog:
-        description: The CHANGELOG whose `## [<version>]` section is the notes, such as a second bundle's own
+        description: The CHANGELOG whose `## [<version>]` section is the notes
         type: string
         default: CHANGELOG.md
       runs-on:
@@ -58,28 +56,35 @@ jobs:
           name: bundle
           path: ${{ runner.temp }}/dist
 
-      - name: Notes from the CHANGELOG and the package
+      - name: Notes from the CHANGELOG
         env:
           VERSION: ${{ inputs.version }}
-          PACKAGE: ${{ inputs.package }}
           CHANGELOG: ${{ inputs.changelog }}
         run: |
           set -euo pipefail
-          package=${PACKAGE:-${GITHUB_REPOSITORY#*/}}
-          ref="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${package,,}"
           {
             echo "## Changelog"
             echo
             bash .bundle-ci/scripts/changelog-section.sh "${CHANGELOG}" "${VERSION}"
             echo
-            echo "## Bundle"
+            echo "## Bundles"
             echo
-            echo "\`${ref}:${VERSION}\`, which \`:stable\` moved to. The archive attached is the same bundle, signed with the release key."
+            echo "Each \`<name>-${VERSION}.tar.zst\` attached is a bundle signed with the release key, also published as \`ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/<name>:${VERSION}\`, which \`:stable\` moved to."
           } >"${RUNNER_TEMP}/notes.md"
           cat "${RUNNER_TEMP}/notes.md"
 
-      - name: Create the release
+      - name: Create the release, or attach to it
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           ARCHIVE: ${{ inputs.archive }}
-        run: gh release create "${GITHUB_REF_NAME}" --verify-tag --title "${GITHUB_REF_NAME}" --notes-file "${RUNNER_TEMP}/notes.md" "${RUNNER_TEMP}/dist/${ARCHIVE}"
+        run: |
+          set -euo pipefail
+          archive=${RUNNER_TEMP}/dist/${ARCHIVE}
+          # Another bundle of the same tag may have created it, before this
+          # job or while it ran.
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 ||
+            ! gh release create "${GITHUB_REF_NAME}" --verify-tag --title "${GITHUB_REF_NAME}" \
+              --notes-file "${RUNNER_TEMP}/notes.md" "${archive}"; then
+            gh release upload "${GITHUB_REF_NAME}" "${archive}"
+          fi

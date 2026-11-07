@@ -419,15 +419,17 @@ inputs wherever the workflow they call takes one:
 |---|---|---|
 | `bundle-dir` (`bundle.yml`) | `bundle` | `canary` |
 | `version-paths` (`bundle.yml`) | `bundle` | `canary` |
-| `package` (`bundle.yml`, `publish.yml`, `github-release.yml`, `retention.yml`) | the repository's name | `dotdash-canary` |
-| `changelog` (`github-release.yml`) | `CHANGELOG.md` | `canary/CHANGELOG.md` |
-| `tag-prefix` (`bundle.yml`, `guard.yml`) | `v` | `canary-v` |
+| `package` (`bundle.yml`, `publish.yml`, `retention.yml`) | the repository's name | `dotdash-canary` |
+| `tag-prefix` (`bundle.yml`, `guard.yml`) | `v` | `canary-v`, or `v` to release with the first |
 | `smoke-hooks` (`bundle.yml`) | `.github/smoke.d` | `.github/canary-smoke.d` |
 
-Its releases are tags `canary-vX.Y.Z`, which the first bundle's
-`release.yml` (`tags: ["v*"]`) never sees. A dev version counts from the
-nearest tag with its own prefix, and any other tag is passed over, so the
-second bundle needs its own seed: tag the initial commit `canary-v0.0.0` too.
+Released with the first bundle, it keeps `tag-prefix: v` and its
+`<name>-release.yml` triggers on `v*` as well: one tag publishes both at one
+version, and both `github-release.yml` jobs attach to one GitHub release.
+Released on its own, its releases are tags `canary-vX.Y.Z`, which the first
+bundle's `release.yml` (`tags: ["v*"]`) never sees; a dev version counts from
+the nearest tag with its own prefix, so it needs its own seed: tag the initial
+commit `canary-v0.0.0` too, and give `github-release.yml` its own `changelog`.
 The two bundles share the repository's signing keys. `pin.yml` pins only
 `bundle/`.
 

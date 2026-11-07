@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `morzer-version` (`REHEARSE_MORZER_VERSION` for `rehearse.sh`, `MORZER_VERSION` for `tools.sh`): the morzer release the build and the rigs install, 0.13.0 or later, checked by its release signature as the pinned one is. Empty takes the pin, so a product can move to a new morzer without a bundle-ci release.
+
 ### Changed
 
 - The rig and the build install morzer 0.13.0, up from 0.12.0, so a bundle that declares `compatibility.database: none`, which needs 0.13.0, can be built and smoke-tested. Under 0.13.0, `update` refuses a release older than the one installed, and `doctor` exits 3 when a running service is unhealthy or a release health check fails.

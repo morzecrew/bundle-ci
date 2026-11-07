@@ -204,6 +204,7 @@ jobs:
 | `smoke-hooks` | `.github/smoke.d` | the product's smoke hooks |
 | `dev-pubkey`, `release-pubkey` | — | the public keys the dev and release builds are verified with, and `smoke-update` trusts the published bundle by |
 | `image-cache` | `true` | on a self-hosted runner, load the pinned images from the runner's cache (below) |
+| `morzer-version` | this release's pin | the morzer release the build and the rigs install, 0.13.0 or later, verified by its signature as the pin is |
 
 ### The image cache
 

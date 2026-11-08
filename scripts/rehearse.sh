@@ -28,7 +28,13 @@
 #   REHEARSE_BUNDLE_DIR        `bundle-dir` (default bundle); a second bundle
 #                              also needs --from, since its package is not the
 #                              repository's name
+#   GITHUB_TOKEN               a token for tools.sh's GitHub downloads, such as
+#                              `gh auth token`'s; only that command in the rig
+#                              gets it
 set -euo pipefail
+
+download_token=${GITHUB_TOKEN:-${GH_TOKEN:-}}
+unset GITHUB_TOKEN GH_TOKEN
 
 scripts=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(pwd)
@@ -155,7 +161,7 @@ bash "${rig}" cp "${name}" "${work}/smoke.env" /rig/smoke.env
 for script in tools.sh smoke.sh smoke-lib.sh; do
 	bash "${rig}" cp "${name}" "${scripts}/${script}" "/rig/${script}"
 done
-in_rig env MORZER_VERSION="${REHEARSE_MORZER_VERSION:-}" bash /rig/tools.sh morzer sops age
+GITHUB_TOKEN=${download_token} in_rig env MORZER_VERSION="${REHEARSE_MORZER_VERSION:-}" bash /rig/tools.sh morzer sops age
 
 # The tree as git sees it, so nothing it ignores enters the rig.
 in_rig mkdir -p /rig/rehearsal /rig/dist /rig/published

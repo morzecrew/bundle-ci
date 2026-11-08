@@ -124,10 +124,16 @@ cp)
 	;;
 exec)
 	[ $# -ge 3 ] || die "usage: rig.sh exec <name> <command...>"
-	# -i: a command may read a tar, a token or a secret on stdin.
+	# -i: a command may read a tar, a token or a secret on stdin. A
+	# GITHUB_TOKEN the caller set goes in by name, never on the command line,
+	# for tools.sh's downloads; a step that sets none passes none.
 	name=$2
 	shift 2
-	docker exec -i "${name}" "$@"
+	if [ -n "${GITHUB_TOKEN:-}" ]; then
+		docker exec -i -e GITHUB_TOKEN "${name}" "$@"
+	else
+		docker exec -i "${name}" "$@"
+	fi
 	;;
 login)
 	[ $# -eq 4 ] || die "usage: rig.sh login <name> <registry> <user>"

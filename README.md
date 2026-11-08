@@ -308,8 +308,11 @@ bash ~/bundle-ci/scripts/rehearse.sh --from <ref> # from another published bundl
 bash ~/bundle-ci/scripts/rehearse.sh --keep       # leave the rig for inspection
 ```
 
-No credential enters the rig: the workstation's `oras` copies every image
-either manifest pins into it.
+No registry credential enters the rig: the workstation's `oras` copies every
+image either manifest pins into it. A `GITHUB_TOKEN` you set
+(`GITHUB_TOKEN=$(gh auth token) bash ~/bundle-ci/scripts/rehearse.sh`) goes to
+the one command that downloads the tools from GitHub releases, and to nothing
+else in the rig.
 
 ### Releasing a product
 

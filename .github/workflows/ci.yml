@@ -33,10 +33,15 @@ jobs:
         with:
           persist-credentials: false
 
+      # Authenticated, as tools.sh downloads: anonymous release downloads
+      # have failed for hours while authenticated ones went through.
       - name: Install shellcheck
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          curl -fsSL -o shellcheck.tar.xz \
+          curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" -o shellcheck.tar.xz \
             "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK}/shellcheck-v${SHELLCHECK}.linux.x86_64.tar.xz"
           echo "${SHELLCHECK_SHA256}  shellcheck.tar.xz" | sha256sum -c -
           tar -xJf shellcheck.tar.xz "shellcheck-v${SHELLCHECK}/shellcheck"
@@ -49,6 +54,8 @@ jobs:
       # The runner's yq is another program of the same name; pin.sh needs
       # mikefarah's.
       - name: Install yq
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           BIN_DIR="${RUNNER_TEMP}/bin" bash scripts/tools.sh yq
           echo "${RUNNER_TEMP}/bin" >>"${GITHUB_PATH}"
@@ -61,6 +68,9 @@ jobs:
 
       - name: Smoke tests
         run: bash tests/smoke/run.sh
+
+      - name: Tools tests
+        run: bash tests/tools/run.sh
 
       - name: Image cache tests
         run: bash tests/cache/run.sh
@@ -82,11 +92,14 @@ jobs:
           persist-credentials: false
 
       - name: Install actionlint
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT}"
-          curl -fsSL -o actionlint.tar.gz "${base}/actionlint_${ACTIONLINT}_linux_amd64.tar.gz"
-          curl -fsSL -o checksums.txt "${base}/actionlint_${ACTIONLINT}_checksums.txt"
+          get() { curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors -H "Authorization: Bearer ${GITHUB_TOKEN}" -o "$1" "$2"; }
+          get actionlint.tar.gz "${base}/actionlint_${ACTIONLINT}_linux_amd64.tar.gz"
+          get checksums.txt "${base}/actionlint_${ACTIONLINT}_checksums.txt"
           grep " actionlint_${ACTIONLINT}_linux_amd64.tar.gz\$" checksums.txt | sed 's/ .*/  actionlint.tar.gz/' | sha256sum -c -
           tar -xzf actionlint.tar.gz actionlint
           sudo install -m 0755 actionlint /usr/local/bin/actionlint

@@ -81,6 +81,8 @@ jobs:
           persist-credentials: false
 
       - name: Install tools
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bash .bundle-ci/scripts/tools.sh oras
 
       - name: Log in to ghcr

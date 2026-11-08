@@ -34,6 +34,18 @@ work=$(mktemp -d)
 trap 'rm -rf "${work}"' EXIT
 cd "${work}"
 
+# GitHub release downloads, authenticated when the caller hands over a token
+# (GITHUB_TOKEN, or GH_TOKEN): anonymous ones have failed for hours with 504
+# while authenticated ones went through, and they share a lower rate limit.
+# curl does not send the header on to the host GitHub redirects the download
+# to. Every file is still checked as before.
+token=${GITHUB_TOKEN:-${GH_TOKEN:-}}
+auth=()
+[ -z "${token}" ] || auth=(-H "Authorization: Bearer ${token}")
+fetch() { # <url> [file]
+	curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors ${auth[@]+"${auth[@]}"} -o "${2:-${1##*/}}" "$1"
+}
+
 check() { # <sha256> <file>
 	echo "$1  $2" | sha256sum -c -
 }
@@ -72,7 +84,7 @@ fi
 for tool in "$@"; do
 	case "${tool}" in
 	minisign)
-		curl -fsSLO "${gh}/jedisct1/minisign/releases/download/${MINISIGN}/minisign-${MINISIGN}-linux.tar.gz"
+		fetch "${gh}/jedisct1/minisign/releases/download/${MINISIGN}/minisign-${MINISIGN}-linux.tar.gz"
 		check "${MINISIGN_SHA256}" "minisign-${MINISIGN}-linux.tar.gz"
 		tar -xzf "minisign-${MINISIGN}-linux.tar.gz" minisign-linux/x86_64/minisign
 		put minisign-linux/x86_64/minisign
@@ -83,33 +95,33 @@ for tool in "$@"; do
 		;;
 	morzer)
 		base="${gh}/morzecrew/morzer/releases/download/v${MORZER}"
-		curl -fsSLO "${base}/morzer_${MORZER}_linux_amd64.tar.zst"
-		curl -fsSLO "${base}/SHA256SUMS"
-		curl -fsSLO "${base}/SHA256SUMS.minisig"
+		fetch "${base}/morzer_${MORZER}_linux_amd64.tar.zst"
+		fetch "${base}/SHA256SUMS"
+		fetch "${base}/SHA256SUMS.minisig"
 		minisign -Vm SHA256SUMS -P "${MORZER_PUBKEY}"
 		grep " morzer_${MORZER}_linux_amd64.tar.zst\$" SHA256SUMS | sha256sum -c -
 		tar --zstd -xf "morzer_${MORZER}_linux_amd64.tar.zst" morzer
 		put morzer
 		;;
 	oras)
-		curl -fsSLO "${gh}/oras-project/oras/releases/download/v${ORAS}/oras_${ORAS}_linux_amd64.tar.gz"
+		fetch "${gh}/oras-project/oras/releases/download/v${ORAS}/oras_${ORAS}_linux_amd64.tar.gz"
 		check "${ORAS_SHA256}" "oras_${ORAS}_linux_amd64.tar.gz"
 		tar -xzf "oras_${ORAS}_linux_amd64.tar.gz" oras
 		put oras
 		;;
 	sops)
-		curl -fsSL -o sops "${gh}/getsops/sops/releases/download/v${SOPS}/sops-v${SOPS}.linux.amd64"
+		fetch "${gh}/getsops/sops/releases/download/v${SOPS}/sops-v${SOPS}.linux.amd64" sops
 		check "${SOPS_SHA256}" sops
 		put sops
 		;;
 	age)
-		curl -fsSLO "${gh}/FiloSottile/age/releases/download/v${AGE}/age-v${AGE}-linux-amd64.tar.gz"
+		fetch "${gh}/FiloSottile/age/releases/download/v${AGE}/age-v${AGE}-linux-amd64.tar.gz"
 		check "${AGE_SHA256}" "age-v${AGE}-linux-amd64.tar.gz"
 		tar -xzf "age-v${AGE}-linux-amd64.tar.gz" age/age age/age-keygen
 		put age/age age/age-keygen
 		;;
 	yq)
-		curl -fsSL -o yq "${gh}/mikefarah/yq/releases/download/v${YQ}/yq_linux_amd64"
+		fetch "${gh}/mikefarah/yq/releases/download/v${YQ}/yq_linux_amd64" yq
 		check "${YQ_SHA256}" yq
 		put yq
 		;;

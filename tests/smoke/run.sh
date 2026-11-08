@@ -13,7 +13,8 @@
 # times stops the update before morzer runs. And that `install` runs the
 # product's pre-apply hooks in name order, between the operator secrets and
 # the first `apply`, and stops at one that fails; and that it adds
-# SMOKE_INIT_ARGS to `morzer init`. And that `tamper` passes against a morzer
+# SMOKE_INIT_ARGS to `morzer init`, less each `--set` of a parameter the
+# archive does not declare. And that `tamper` passes against a morzer
 # that checks the sums and the signature, and fails against one that updates
 # anyway or refuses for another reason.
 set -euo pipefail
@@ -39,6 +40,16 @@ expect() { # expect <what> <expected> <actual>
 # `morzer release archive` lays it out.
 mkdir -p "${work}/archive/bundle"
 cp "${repo}/tests/pin/manifest.yaml" "${work}/archive/bundle/manifest.yaml"
+# Two parameters, for install's init-args; a nested key is not one.
+cat >>"${work}/archive/bundle/manifest.yaml" <<'EOF'
+parameters:
+  smtp_host:
+    type: string
+    description: "a: nested"
+  smtp_port:
+    type: port
+    default: 25
+EOF
 archive=${work}/demo.tar.zst
 tar -C "${work}/archive" -I zstd -cf "${archive}" bundle
 
@@ -208,6 +219,18 @@ LOG="${work}/log" FAIL_PULLS="${work}/fail" CACHED="${work}/cached" SMOKE_ENV=/d
 expect "after the signing key, one word each" \
 	"--signing-key RWQfakekey --domain demo.test --set smtp_host=mail.test" \
 	"$(sed -n 's/^morzer init .*--install-units=false //p' "${work}/log")"
+
+: >"${work}/log"
+out=$(LOG="${work}/log" FAIL_PULLS="${work}/fail" CACHED="${work}/cached" SMOKE_ENV=/dev/null \
+	SMOKE_INIT_ARGS="--set legacy_host=old.test --domain demo.test --set smtp_port=2525 --set type=x --profile p" \
+	PATH="${bin}:${PATH}" bash "${repo}/scripts/smoke.sh" install "${archive}" RWQfakekey 2>&1)
+expect "less each --set the archive does not declare, nested keys included" \
+	"--signing-key RWQfakekey --domain demo.test --set smtp_port=2525 --profile p" \
+	"$(sed -n 's/^morzer init .*--install-units=false //p' "${work}/log")"
+case "${out}" in
+*"declares no parameter legacy_host"*"declares no parameter type"*) ok "and names each one left out" ;;
+*) fail "and names each one left out: ${out}" ;;
+esac
 
 echo "# tamper: morzer must refuse both altered copies, for the right reason"
 # A signed bundle as morzer lays it out, its "signature" the hash of

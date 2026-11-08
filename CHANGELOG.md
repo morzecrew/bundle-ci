@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A smoke install leaves out each `--set` in `init-args` that the release it installs does not declare, and names it. A bundle that drops a parameter with no default can keep it in `init-args` for the published release `smoke-update` installs first, which `morzer init` otherwise refuses either way.
+
 ## [0.9.1] - 2026-11-08
 
 ### Fixed

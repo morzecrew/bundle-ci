@@ -216,7 +216,7 @@ jobs:
 | `schema-image` | `migrations` | the key whose image's label is the schema the release produces; empty when none |
 | `schema-label` | `tech.morze.<metadata.name>.schema` | that label |
 | `operator-secrets` | — | secrets only an operator sets; the smoke install sets each from random |
-| `init-args` | — | what each smoke install adds to `morzer init`, split on whitespace: `--domain`, a `--set` for each parameter with no default, which `init` refuses without |
+| `init-args` | — | what each smoke install adds to `morzer init`, split on whitespace: `--domain`, a `--set` for each parameter with no default, which `init` refuses without; a `--set` the installed release does not declare is left out, so a parameter the new release drops can stay for the published one |
 | `health-port`, `probe-paths` | `8081`, `/__platform_healthz /health` | what a probe asks the edge's loopback port for; empty `probe-paths` for a bundle that serves no HTTP, which leaves its manifest's health checks, run at every apply |
 | `smoke-hooks` | `.github/smoke.d` | the product's smoke hooks |
 | `dev-pubkey`, `release-pubkey` | — | the public keys the dev and release builds are verified with, and `smoke-update` trusts the published bundle by |

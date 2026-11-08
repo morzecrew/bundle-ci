@@ -16,7 +16,8 @@
 # `install` and `update` first pull every image the archive pins, retrying,
 # because a registry that drops one connection fails morzer's own pull.
 # `install` trusts every key it is given and refuses an unsigned release. It
-# adds SMOKE_INIT_ARGS to `morzer init`, then sets each of
+# adds SMOKE_INIT_ARGS to `morzer init`, less each `--set <name>=<value>` the
+# archive does not declare, which it names; then it sets each of
 # SMOKE_OPERATOR_SECRETS, the secrets only an operator sets, from `random`;
 # `init` generates the rest, and nothing here prints a secret. Last, before the
 # first `apply`, it runs the product's pre-apply hooks,
@@ -45,6 +46,7 @@ install_release() {
 	done
 	[ ${#keys[@]} -gt 0 ] || die "install needs at least one signing key"
 	read -ra init_args <<<"${SMOKE_INIT_ARGS}"
+	drop_undeclared "${archive}"
 
 	pull_images "${archive}"
 	sudo morzer init --mode dev --release "${archive}" --require-signature \
@@ -65,6 +67,35 @@ install_release() {
 
 	# --verbose: morzer prints a one-shot's output, a migration's error, only then.
 	sudo morzer --verbose apply
+}
+
+# Removes from init_args each `--set <name>=<value>` whose name the archive's
+# manifest does not declare, saying which. `morzer init` refuses such a
+# `--set`, and a release refuses an init that leaves a parameter with no
+# default unset, so a release that drops one of those cannot share init-args
+# with the one before it otherwise: smoke-update installs the published
+# release with the same init-args as the new one.
+drop_undeclared() {
+	local declared kept=() i=0 name
+	declared=$(manifest_of "$1" | awk '
+		/^parameters:/ { on = 1; next }
+		/^[^[:space:]#]/ { on = 0 }
+		on && /^  [A-Za-z0-9_]+:/ { sub(/^  /, ""); sub(/:.*/, ""); print }')
+	while [ "${i}" -lt ${#init_args[@]} ]; do
+		if [ "${init_args[i]}" = --set ] && [ $((i + 1)) -lt ${#init_args[@]} ]; then
+			name=${init_args[i + 1]%%=*}
+			if grep -qxF -- "${name}" <<<"${declared}"; then
+				kept+=(--set "${init_args[i + 1]}")
+			else
+				echo "smoke.sh: the release declares no parameter ${name}; --set ${name} left out"
+			fi
+			i=$((i + 2))
+			continue
+		fi
+		kept+=("${init_args[i]}")
+		i=$((i + 1))
+	done
+	init_args=(${kept[@]+"${kept[@]}"})
 }
 
 # An archive's manifest.yaml: the shallowest one it holds.

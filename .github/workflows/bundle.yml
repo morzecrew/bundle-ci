@@ -76,7 +76,7 @@ on:
         type: string
         default: ""
       init-args:
-        description: What each smoke install adds to `morzer init`, split on whitespace, such as --domain and a --set for each parameter with no default
+        description: What each smoke install adds to `morzer init`, split on whitespace, such as --domain and a --set for each parameter with no default; a --set the installed release does not declare is left out, so one value fits the published release and the new one
         type: string
         default: ""
       health-port:

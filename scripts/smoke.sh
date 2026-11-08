@@ -9,6 +9,7 @@
 #   smoke.sh pins <archive>                 every image the archive pins by digest
 #   smoke.sh manifest <archive>             the archive's manifest.yaml
 #   smoke.sh rollback <published> <new>     `sudo morzer rollback` from <new> to <published>
+#   smoke.sh tamper <archive>               `sudo morzer update` refuses altered copies
 #   smoke.sh diagnose                       `morzer status` and the Compose logs
 #   smoke.sh free-disk                      room for the release's disk requirement
 #
@@ -129,6 +130,50 @@ rollback() {
 	echo "smoke.sh: rollback refused across the schema change ${from} -> ${to}, as it must be"
 }
 
+# `morzer update` must refuse two copies of <archive> with one byte changed in
+# a file morzer does not parse (so nothing but the check can refuse it): one
+# under the signed SHA256SUMS, refused as a checksum mismatch, and one with
+# SHA256SUMS rewritten to match, refused as a signature that does not verify.
+# Either way the installed release stays. The update to <archive> itself,
+# which bundle.yml runs next, is the control.
+tamper() {
+	local archive=$1 work release root file byte
+	work=$(mktemp -d)
+	release=$(sudo morzer status --json | jq -c '.data.current_release')
+	tar -I zstd -tf "${archive}" >"${work}/list"
+	mkdir "${work}/x"
+	tar -I zstd -xf "${archive}" -C "${work}/x"
+	# The bundle's root: where its shallowest SHA256SUMS is.
+	root=$(grep -E '(^|/)SHA256SUMS$' "${work}/list" | awk '{ print length, $0 }' | sort -n | sed -n '1s/^[0-9]* //p')
+	[ -n "${root}" ] || die "${archive} holds no SHA256SUMS"
+	root=${work}/x/$(dirname "${root}")
+	file=$(awk '$2 != "manifest.yaml" && $2 != "VERSION" { print $2; exit }' "${root}/SHA256SUMS")
+	[ -s "${root}/${file:-.}" ] || die "${archive} lists no file but its manifest and VERSION in SHA256SUMS"
+	pull_images "${archive}"
+
+	byte=A
+	[ "$(head -c1 "${root}/${file}")" != A ] || byte=B
+	printf '%s' "${byte}" | dd of="${root}/${file}" bs=1 count=1 conv=notrunc 2>/dev/null
+	refuse_tampered "a byte of ${file} changed under the signed SHA256SUMS" 'checksum mismatch'
+	awk -v f="${file}" -v h="$(sha256sum "${root}/${file}" | cut -d' ' -f1)" \
+		'$2 == f { $0 = h "  " f } { print }' "${root}/SHA256SUMS" >"${work}/sums"
+	cat "${work}/sums" >"${root}/SHA256SUMS"
+	refuse_tampered "SHA256SUMS rewritten to match" 'signature does not verify'
+	rm -rf "${work}"
+}
+
+refuse_tampered() { # <what was altered> <what morzer must say>: with tamper's locals
+	tar -I zstd -C "${work}/x" --no-recursion -cf "${work}/tampered.tar.zst" -T "${work}/list"
+	# shellcheck disable=SC2024 # the output file is this script's own
+	if sudo morzer update --allow-older "${work}/tampered.tar.zst" >"${work}/out" 2>&1; then
+		die "morzer updated to an archive with $1"
+	fi
+	grep -qF "$2" "${work}/out" || die "morzer refused an archive with $1, but not with \"$2\": $(tail -3 "${work}/out")"
+	[ "$(sudo morzer status --json | jq -c '.data.current_release')" = "${release}" ] \
+		|| die "after refusing an archive with $1, the installed release changed"
+	echo "smoke.sh: update refuses an archive with $1 ($2)"
+}
+
 # A hosted runner's root has about 14 GiB free, and a release's preflight may
 # want 20 GiB; the preinstalled toolchains hold about 25.
 free_disk() {
@@ -171,7 +216,11 @@ rollback)
 	[ $# -eq 3 ] || die "usage: smoke.sh rollback <published archive> <new archive>"
 	rollback "$2" "$3"
 	;;
+tamper)
+	[ $# -eq 2 ] || die "usage: smoke.sh tamper <archive>"
+	tamper "$2"
+	;;
 free-disk) free_disk ;;
 diagnose) diagnose ;;
-*) die "usage: smoke.sh install|update|probe|pins|manifest|rollback|diagnose|free-disk" ;;
+*) die "usage: smoke.sh install|update|probe|pins|manifest|rollback|tamper|diagnose|free-disk" ;;
 esac

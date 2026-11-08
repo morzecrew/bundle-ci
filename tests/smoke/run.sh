@@ -13,7 +13,9 @@
 # times stops the update before morzer runs. And that `install` runs the
 # product's pre-apply hooks in name order, between the operator secrets and
 # the first `apply`, and stops at one that fails; and that it adds
-# SMOKE_INIT_ARGS to `morzer init`.
+# SMOKE_INIT_ARGS to `morzer init`. And that `tamper` passes against a morzer
+# that checks the sums and the signature, and fails against one that updates
+# anyway or refuses for another reason.
 set -euo pipefail
 
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -206,6 +208,54 @@ LOG="${work}/log" FAIL_PULLS="${work}/fail" CACHED="${work}/cached" SMOKE_ENV=/d
 expect "after the signing key, one word each" \
 	"--signing-key RWQfakekey --domain demo.test --set smtp_host=mail.test" \
 	"$(sed -n 's/^morzer init .*--install-units=false //p' "${work}/log")"
+
+echo "# tamper: morzer must refuse both altered copies, for the right reason"
+# A signed bundle as morzer lays it out, its "signature" the hash of
+# SHA256SUMS, which the stub below checks as morzer checks the minisign one.
+signed=${work}/signed
+mkdir -p "${signed}/bundle"
+cp "${repo}/tests/pin/manifest.yaml" "${signed}/bundle/manifest.yaml"
+echo 1.0.0 >"${signed}/bundle/VERSION"
+echo "notes" >"${signed}/bundle/RELEASE.md"
+(cd "${signed}/bundle" && sha256sum manifest.yaml VERSION RELEASE.md >SHA256SUMS && sha256sum SHA256SUMS >SHA256SUMS.minisig)
+tar -C "${signed}" -I zstd -cf "${work}/signed.tar.zst" bundle
+vbin=${work}/vbin
+mkdir -p "${vbin}"
+cp "${bin}/sudo" "${bin}/docker" "${bin}/sleep" "${vbin}/"
+cat >"${vbin}/morzer" <<'EOF'
+#!/usr/bin/env bash
+echo "morzer $*" >>"${LOG}"
+case "$1" in
+status) echo '{"data": {"current_release": {"version": "0.9.0"}}}' ;;
+update)
+	case ${MODE} in accept) exit 0 ;; other) echo "disk full" >&2; exit 1 ;; esac
+	d=$(mktemp -d)
+	tar -I zstd -xf "${*: -1}" -C "${d}"
+	cd "${d}/bundle" || exit 1
+	sha256sum -c --status SHA256SUMS.minisig \
+		|| { echo "the bundle's signature does not verify against any configured signing key" >&2; exit 1; }
+	sha256sum -c --quiet SHA256SUMS 2>/dev/null | sed 's/: FAILED$/: checksum mismatch/' >&2
+	sha256sum -c --status SHA256SUMS
+	;;
+esac
+EOF
+chmod +x "${vbin}/morzer"
+tamper() { # tamper <mode>
+	: >"${work}/log"
+	LOG="${work}/log" FAIL_PULLS="${work}/fail" CACHED="${work}/cached" MODE="$1" SMOKE_ENV=/dev/null \
+		PATH="${vbin}:${PATH}" bash "${repo}/scripts/smoke.sh" tamper "${work}/signed.tar.zst"
+}
+if out=$(tamper verify 2>&1); then ok "passes when morzer checks"; else fail "passes when morzer checks: ${out}"; fi
+expect "two updates, both refused" 2 "$(grep -c '^morzer --verbose update\|^morzer update' "${work}/log")"
+case "${out}" in
+*"RELEASE.md changed under the signed SHA256SUMS (checksum mismatch)"*"rewritten to match (signature does not verify)"*)
+	ok "and names both refusals" ;;
+*) fail "and names both refusals: ${out}" ;;
+esac
+if out=$(tamper accept 2>&1); then fail "fails when morzer updates anyway"; else ok "fails when morzer updates anyway"; fi
+case "${out}" in *"morzer updated to an archive"*) ok "and says so" ;; *) fail "and says so: ${out}" ;; esac
+if out=$(tamper other 2>&1); then fail "fails when morzer refuses for another reason"; else ok "fails when morzer refuses for another reason"; fi
+case "${out}" in *'but not with "checksum mismatch"'*) ok "and says so" ;; *) fail "and says so: ${out}" ;; esac
 
 if [ "${failures}" -ne 0 ]; then
 	echo "${failures} check(s) failed" >&2

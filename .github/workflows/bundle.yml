@@ -690,6 +690,12 @@ jobs:
         if: steps.published.outputs.archive != ''
         run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh probe
 
+      - name: Refuse a tampered bundle
+        if: steps.published.outputs.archive != ''
+        env:
+          ARCHIVE: ${{ needs.build.outputs.archive }}
+        run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" bash /rig/smoke.sh tamper "/rig/dist/${ARCHIVE}"
+
       - name: Update to the new bundle
         if: steps.published.outputs.archive != ''
         env:

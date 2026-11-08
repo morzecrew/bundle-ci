@@ -78,13 +78,13 @@ concurrency:
 jobs:
   pin:
     permissions: { contents: write, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/pin.yml@v0.9.2
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: pin
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.9.2
     with:
       ref: ${{ needs.pin.outputs.sha }}
       channel: main
@@ -99,7 +99,7 @@ jobs:
     needs: [pin, bundle]
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write, id-token: write, attestations: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.9.2
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -120,13 +120,13 @@ concurrency:
 jobs:
   guard:
     permissions: { contents: read }
-    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/guard.yml@v0.9.2
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
   bundle:
     needs: guard
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.9.2
     with:
       ref: ${{ github.sha }}
       version: ${{ needs.guard.outputs.version }}
@@ -142,7 +142,7 @@ jobs:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write, id-token: write, attestations: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.9.2
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -152,7 +152,7 @@ jobs:
   github-release:
     needs: [bundle, publish]
     permissions: { contents: write }
-    uses: morzecrew/bundle-ci/.github/workflows/github-release.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/github-release.yml@v0.9.2
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -171,7 +171,7 @@ concurrency:
 jobs:
   bundle:
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.9.2
     with:
       ref: ${{ github.sha }}
       version: 0.0.0-pr.${{ github.event.pull_request.number }}
@@ -194,7 +194,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/retention.yml@v0.9.2
     with:
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-24.04' }}
     secrets:
@@ -369,7 +369,7 @@ concurrency:
 jobs:
   image:
     permissions: { contents: write, packages: write, pull-requests: read }
-    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.9.2
     with:
       component: app
       schema-label: tech.morze.demo.schema
@@ -381,7 +381,7 @@ jobs:
   bundle:
     needs: image
     permissions: { contents: read, packages: read }
-    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/bundle.yml@v0.9.2
     with:
       ref: ${{ github.sha }}
       pin: dev
@@ -399,7 +399,7 @@ jobs:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
     permissions: { contents: read, packages: write, id-token: write, attestations: write }
-    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.9.2
     with:
       version: ${{ needs.bundle.outputs.version }}
       archive: ${{ needs.bundle.outputs.archive }}
@@ -472,7 +472,7 @@ concurrency:
 jobs:
   images:
     permissions: { contents: write, packages: write, pull-requests: read }
-    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/component-image.yml@v0.9.2
     with:
       component: backend
       bundle-repo: demo-standalone
@@ -501,7 +501,7 @@ permissions: {}
 jobs:
   retention:
     permissions: {}
-    uses: morzecrew/bundle-ci/.github/workflows/component-retention.yml@v0.9.1
+    uses: morzecrew/bundle-ci/.github/workflows/component-retention.yml@v0.9.2
     with:
       images: demo-backend demo-migrations
       runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}

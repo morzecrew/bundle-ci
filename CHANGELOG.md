@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-08
+
 ### Added
 
 - `publish.yml` attests the published bundle's build provenance, signed for the workflow run that built it. Check it with `gh attestation verify oci://ghcr.io/<owner>/<package>:<version> --owner <owner>`.
@@ -125,7 +127,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/rehearse.sh` runs the smoke jobs' install, hooks, update and rollback on a workstation, from a product's root.
 - A product names its component keys, schema label, operator secrets and probe paths as inputs, and adds its own smoke checks as hooks in `.github/smoke.d`.
 
-[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/morzecrew/bundle-ci/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/morzecrew/bundle-ci/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/morzecrew/bundle-ci/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/morzecrew/bundle-ci/compare/v0.5.0...v0.6.0

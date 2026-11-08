@@ -64,6 +64,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Build provenance for the published bundle (the attest step).
+      id-token: write
+      attestations: write
     steps:
       - name: Install git, curl, ca-certificates and jq
         run: |
@@ -97,6 +100,7 @@ jobs:
           path: ${{ runner.temp }}/dist
 
       - name: Publish
+        id: publish
         env:
           VERSION: ${{ inputs.version }}
           ARCHIVE: ${{ inputs.archive }}
@@ -128,10 +132,20 @@ jobs:
           oras tag "${repo}:${VERSION}" "${CHANNEL}"
           bash "${scripts}/registry.sh" exists "${repo}:${CHANNEL}"
           manifest=$(oras manifest fetch --descriptor "${repo}:${VERSION}" | jq -r '.digest')
+          echo "repo=${repo}" >>"${GITHUB_OUTPUT}"
+          echo "digest=${manifest}" >>"${GITHUB_OUTPUT}"
           {
             echo
             echo "Published \`${repo}:${VERSION}\` (\`${manifest}\`) and moved \`:${CHANNEL}\` to it."
           } >>"${GITHUB_STEP_SUMMARY}"
+
+      # Signed provenance of the published manifest: which repository, commit
+      # and workflow run built it. `gh attestation verify
+      # oci://ghcr.io/<owner>/<package>:<version> --owner <owner>` checks it.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.publish.outputs.repo }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
 
       # The steps above ran as root over the runner's mounted workspace, so
       # its files are root's now; the runner's next job on the host could

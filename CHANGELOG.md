@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `publish.yml` attests the published bundle's build provenance, signed for the workflow run that built it. Check it with `gh attestation verify oci://ghcr.io/<owner>/<package>:<version> --owner <owner>`.
+
+### Changed
+
+- **Breaking:** the job calling `publish.yml` must also grant `id-token: write` and `attestations: write`, for the provenance; without them the workflow does not start. The README's callers show the permissions.
+
 ## [0.8.0] - 2026-11-07
 
 ### Added

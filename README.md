@@ -36,12 +36,20 @@ commit without the callers runs no workflow when tagged.
 | `pin.yml` | resolve each component's `main` to a digest, commit a changed pin to the product's main; outputs `sha` | `contents: write`, `packages: read` |
 | `guard.yml` | refuse a release tag that is not `vX.Y.Z` on main; outputs `version` | `contents: read` |
 | `bundle.yml` | build, sign, `smoke-install` and `smoke-update`; outputs `version`, `archive`, `proceed`, `images` | `contents: read`, `packages: read` |
-| `publish.yml` | push `:<version>`, move the channel; for a release, first tag each component image `bundle-<version>` | `contents: read`, `packages: write` |
+| `publish.yml` | push `:<version>`, move the channel, attest its build provenance; for a release, first tag each component image `bundle-<version>` | `contents: read`, `packages: write`, `id-token: write`, `attestations: write` |
 | `github-release.yml` | for a release, create the tag's GitHub release: the version's CHANGELOG section as notes, the signed archive attached | `contents: write` |
 | `retention.yml` | keep the last dev versions and drop untagged ones | a token secret that may delete package versions |
 
 They are not nested: a product's workflow calls each as a job, so every
 permission it grants is visible where it is granted.
+
+Each published bundle carries signed build provenance, which names the
+repository, commit and workflow run that built it. Anyone can check it, beside
+the minisign signature morzer checks:
+
+```sh
+gh attestation verify oci://ghcr.io/<owner>/<repository>:<version> --owner <owner>
+```
 
 ### A product's callers
 
@@ -90,7 +98,7 @@ jobs:
   publish:
     needs: [pin, bundle]
     if: needs.bundle.outputs.proceed == 'true'
-    permissions: { contents: read, packages: write }
+    permissions: { contents: read, packages: write, id-token: write, attestations: write }
     uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.8.0
     with:
       version: ${{ needs.bundle.outputs.version }}
@@ -133,7 +141,7 @@ jobs:
   publish:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
-    permissions: { contents: read, packages: write }
+    permissions: { contents: read, packages: write, id-token: write, attestations: write }
     uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.8.0
     with:
       version: ${{ needs.bundle.outputs.version }}
@@ -387,7 +395,7 @@ jobs:
   publish:
     needs: bundle
     if: needs.bundle.outputs.proceed == 'true'
-    permissions: { contents: read, packages: write }
+    permissions: { contents: read, packages: write, id-token: write, attestations: write }
     uses: morzecrew/bundle-ci/.github/workflows/publish.yml@v0.8.0
     with:
       version: ${{ needs.bundle.outputs.version }}

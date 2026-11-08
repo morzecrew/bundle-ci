@@ -83,6 +83,8 @@ jobs:
         run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Install tools
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bash .bundle-ci/scripts/tools.sh oras yq
 
       - name: Log in to ghcr

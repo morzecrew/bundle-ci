@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Tools download from GitHub releases with the job's token, and retry. Anonymous release downloads failed for hours with HTTP 504 while authenticated ones went through, which stopped every job at installing its tools. `rehearse.sh` uses a `GITHUB_TOKEN` you set for that download alone.
+
 ## [0.9.0] - 2026-11-08
 
 ### Added

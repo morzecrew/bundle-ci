@@ -184,6 +184,7 @@ jobs:
 
       - name: Install tools
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           MORZER_VERSION: ${{ inputs.morzer-version }}
         run: bash .bundle-ci/scripts/tools.sh minisign zstd morzer oras yq
 
@@ -460,6 +461,7 @@ jobs:
       - name: Load the pinned images from the runner's cache
         if: inputs.image-cache && runner.environment == 'self-hosted'
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           TOKEN: ${{ github.token }}
           ARCHIVE: ${{ needs.build.outputs.archive }}
         run: |
@@ -476,6 +478,7 @@ jobs:
 
       - name: Install tools in the rig
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           MORZER_VERSION: ${{ inputs.morzer-version }}
         run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" env MORZER_VERSION="${MORZER_VERSION}" bash /rig/tools.sh morzer sops age
 
@@ -553,6 +556,8 @@ jobs:
       # rig installs its own tools and pulls its own images. oras goes under
       # $RUNNER_TEMP, which the job owns, so the host needs no sudo.
       - name: Install oras
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           BIN_DIR="${RUNNER_TEMP}/bin" bash .bundle-ci/scripts/tools.sh oras
           echo "${RUNNER_TEMP}/bin" >>"${GITHUB_PATH}"
@@ -647,6 +652,7 @@ jobs:
       - name: Load the pinned images from the runner's cache
         if: steps.published.outputs.archive != '' && inputs.image-cache && runner.environment == 'self-hosted'
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           TOKEN: ${{ github.token }}
           ARCHIVE: ${{ needs.build.outputs.archive }}
           PUBLISHED: ${{ steps.published.outputs.archive }}
@@ -669,6 +675,7 @@ jobs:
       - name: Install tools in the rig
         if: steps.published.outputs.archive != ''
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           MORZER_VERSION: ${{ inputs.morzer-version }}
         run: bash .bundle-ci/scripts/rig.sh exec "${RIG}" env MORZER_VERSION="${MORZER_VERSION}" bash /rig/tools.sh morzer sops age
 

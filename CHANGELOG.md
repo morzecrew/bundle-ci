@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-09
+
 ### Added
 
 - **`ship-pubkey` ships the signing key in the bundle.** With it on, `bundle.yml` writes the public half of the key the build signs with as the bundle's `minisign.pub` before the build, so the signature covers it and `morzer init` (0.15.0 or later) given no key can trust a release on first use. Off by default.
@@ -143,7 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/rehearse.sh` runs the smoke jobs' install, hooks, update and rollback on a workstation, from a product's root.
 - A product names its component keys, schema label, operator secrets and probe paths as inputs, and adds its own smoke checks as hooks in `.github/smoke.d`.
 
-[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/morzecrew/bundle-ci/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/morzecrew/bundle-ci/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/morzecrew/bundle-ci/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/morzecrew/bundle-ci/compare/v0.8.0...v0.9.0

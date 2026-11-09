@@ -220,6 +220,7 @@ jobs:
 | `health-port`, `probe-paths` | `8081`, `/__platform_healthz /health` | what a probe asks the edge's loopback port for; empty `probe-paths` for a bundle that serves no HTTP, which leaves its manifest's health checks, run at every apply |
 | `smoke-hooks` | `.github/smoke.d` | the product's smoke hooks |
 | `dev-pubkey`, `release-pubkey` | — | the public keys the dev and release builds are verified with, and `smoke-update` trusts the published bundle by |
+| `ship-pubkey` | `false` | ship the public half of the key the build signs with as the bundle's `minisign.pub`, so `morzer init` given no key can trust a release on first use; needs `morzer-version` 0.15.0 or later. Each channel ships its own key, ephemeral, dev or release, so a bundle never carries one its signature doesn't match: don't commit a `minisign.pub` of your own |
 | `image-cache` | `true` | on a self-hosted runner, load the pinned images from the runner's cache (below) |
 | `morzer-version` | this release's pin | the morzer release the build and the rigs install, 0.13.0 or later, verified by its signature as the pin is |
 

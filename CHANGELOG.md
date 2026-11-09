@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`ship-pubkey` ships the signing key in the bundle.** With it on, `bundle.yml` writes the public half of the key the build signs with as the bundle's `minisign.pub` before the build, so the signature covers it and `morzer init` (0.15.0 or later) given no key can trust a release on first use. Off by default.
+
 ## [0.9.2] - 2026-11-08
 
 ### Changed

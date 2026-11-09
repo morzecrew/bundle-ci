@@ -99,6 +99,10 @@ on:
         description: The minisign public key of released bundles
         type: string
         default: ""
+      ship-pubkey:
+        description: "Ship the public half of the key the build signs with in the bundle as minisign.pub, so `morzer init` given no key can trust a release on first use; needs morzer-version 0.15.0 or later"
+        type: boolean
+        default: false
       image-cache:
         description: On a self-hosted runner, load the pinned images into each rig from the runner's own cache (scripts/image-cache.sh), pulling only what it has not seen
         type: boolean
@@ -259,6 +263,36 @@ jobs:
           *) echo "::error::unknown pin mode '${PIN}'"; exit 1 ;;
           esac
 
+      # Before the build, because SHA256SUMS lists minisign.pub like any other
+      # file and the signature covers it: the key shipped is the public half of
+      # the one the bundle is signed with, ephemeral, dev or release, so it
+      # verifies on every channel. A key made here is a throwaway; dev and
+      # release secrets are written only where they sign.
+      - name: Choose the signing key
+        id: key
+        env:
+          SIGNING: ${{ inputs.signing }}
+          DEV_PUBKEY: ${{ inputs.dev-pubkey }}
+          RELEASE_PUBKEY: ${{ inputs.release-pubkey }}
+          SHIP_PUBKEY: ${{ inputs.ship-pubkey }}
+          BUNDLE_DIR: ${{ inputs.bundle-dir }}
+        run: |
+          case "${SIGNING}" in
+          ephemeral)
+            (umask 077 && minisign -G -W -p "${RUNNER_TEMP}/ephemeral.pub" -s "${RUNNER_TEMP}/ephemeral.key" >/dev/null)
+            pubkey=$(sed -n 2p "${RUNNER_TEMP}/ephemeral.pub")
+            ;;
+          dev) pubkey=${DEV_PUBKEY} ;;
+          release) pubkey=${RELEASE_PUBKEY} ;;
+          *) echo "::error::unknown signing '${SIGNING}'"; exit 1 ;;
+          esac
+          [ -n "${pubkey}" ] || { echo "::error::no ${SIGNING} public key was passed"; exit 1; }
+          if [ "${SHIP_PUBKEY}" = true ]; then
+            printf 'untrusted comment: minisign public key, %s signing\n%s\n' "${SIGNING}" "${pubkey}" \
+              >"${BUNDLE_DIR}/minisign.pub"
+          fi
+          echo "pubkey=${pubkey}" >>"${GITHUB_OUTPUT}"
+
       - name: Build
         id: build
         env:
@@ -313,30 +347,24 @@ jobs:
         env:
           SIGNING: ${{ inputs.signing }}
           MINISIGN_KEY: ${{ secrets.minisign-key }}
-          DEV_PUBKEY: ${{ inputs.dev-pubkey }}
-          RELEASE_PUBKEY: ${{ inputs.release-pubkey }}
+          PUBKEY: ${{ steps.key.outputs.pubkey }}
           BUNDLE_DIR: ${{ inputs.bundle-dir }}
         run: |
           umask 077
           key="${RUNNER_TEMP}/minisign.key"
-          trap 'rm -f "${key}"' EXIT
+          trap 'rm -f "${key}" "${RUNNER_TEMP}/ephemeral.key"' EXIT
           case "${SIGNING}" in
-          ephemeral)
-            minisign -G -W -p "${RUNNER_TEMP}/ephemeral.pub" -s "${key}" >/dev/null
-            pubkey=$(sed -n 2p "${RUNNER_TEMP}/ephemeral.pub")
-            ;;
+          ephemeral) mv "${RUNNER_TEMP}/ephemeral.key" "${key}" ;;
           dev | release)
             [ -n "${MINISIGN_KEY}" ] || { echo "::error::no ${SIGNING} signing key was passed"; exit 1; }
-            if [ "${SIGNING}" = release ]; then pubkey=${RELEASE_PUBKEY}; else pubkey=${DEV_PUBKEY}; fi
-            [ -n "${pubkey}" ] || { echo "::error::no ${SIGNING} public key was passed"; exit 1; }
             printf '%s\n' "${MINISIGN_KEY}" >"${key}"
             chmod 0600 "${key}"
             ;;
-          *) echo "::error::unknown signing '${SIGNING}'"; exit 1 ;;
           esac
           minisign -S -s "${key}" -m "${BUNDLE_DIR}/SHA256SUMS" >/dev/null
-          morzer release verify "${BUNDLE_DIR}" --signing-key "${pubkey}"
-          echo "pubkey=${pubkey}" >>"${GITHUB_OUTPUT}"
+          # With a shipped key, verify also checks the signature against it.
+          morzer release verify "${BUNDLE_DIR}" --signing-key "${PUBKEY}"
+          echo "pubkey=${PUBKEY}" >>"${GITHUB_OUTPUT}"
 
       - name: Archive
         id: archive

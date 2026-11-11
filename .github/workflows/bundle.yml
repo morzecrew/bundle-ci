@@ -95,6 +95,10 @@ on:
         description: The product's directory of smoke hooks (*.sh), run in the rig after the install, each followed by a probe
         type: string
         default: .github/smoke.d
+      smoke-update:
+        description: "Run smoke-update, which updates the published bundle to this build; false for a release that can't be updated to in place and is installed again instead, until it is published"
+        type: boolean
+        default: true
       dev-pubkey:
         description: The minisign public key of the dev channel's bundles
         type: string
@@ -118,7 +122,7 @@ on:
       bundle-ci-ref:
         description: The bundle-ci ref whose scripts the jobs run
         type: string
-        default: v0.10.1 # bundle-ci-ref: a release rewrites this to its tag
+        default: v0.11.0 # bundle-ci-ref: a release rewrites this to its tag
     secrets:
       minisign-key:
         description: The minisign secret key, for dev and release signing
@@ -562,7 +566,7 @@ jobs:
 
   smoke-update:
     needs: build
-    if: needs.build.outputs.proceed == 'true'
+    if: needs.build.outputs.proceed == 'true' && inputs.smoke-update
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 45
     permissions:

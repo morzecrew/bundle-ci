@@ -222,6 +222,7 @@ jobs:
 | `dev-pubkey`, `release-pubkey` | — | the public keys the dev and release builds are verified with, and `smoke-update` trusts the published bundle by |
 | `ship-pubkey` | `false` | ship the public half of the key the build signs with as the bundle's `minisign.pub`, so `morzer init` given no key can trust a release on first use; needs `morzer-version` 0.15.0 or later. Each channel ships its own key, ephemeral, dev or release, so a bundle never carries one its signature doesn't match: don't commit a `minisign.pub` of your own |
 | `image-cache` | `true` | on a self-hosted runner, load the pinned images from the runner's cache (below) |
+| `container-options` | `--dns 1.1.1.1 --dns 8.8.8.8` | Docker options for the job's container, as for every workflow with one (`guard`, `pin`, `publish`, `retention` too): public resolvers, since the runner's have failed inside job containers; empty for the runner's own, on a self-hosted runner with internal DNS only |
 | `morzer-version` | this release's pin | the morzer release the build and the rigs install, 0.13.0 or later, verified by its signature as the pin is |
 
 ### The image cache

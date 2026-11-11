@@ -14,6 +14,10 @@ on:
         description: The runner label the job runs on
         type: string
         default: ubuntu-24.04
+      container-options:
+        description: "Docker options for the job's container: public DNS resolvers unless set, as the runner's own have failed inside job containers; empty uses the runner's (a self-hosted runner with internal DNS only)"
+        type: string
+        default: --dns 1.1.1.1 --dns 8.8.8.8
       components:
         description: The manifest's `images:` keys to pin, space-separated
         type: string
@@ -54,6 +58,7 @@ jobs:
     timeout-minutes: 20
     container:
       image: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+      options: ${{ inputs.container-options }}
     permissions:
       contents: write
       packages: read

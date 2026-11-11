@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-11
+
+### Fixed
+
+- **Job containers resolve names again.** Each gets public DNS resolvers through the new `container-options` input (`--dns 1.1.1.1 --dns 8.8.8.8` unless set): on GitHub-hosted runners the runner's own failed in them, and builds died at `apt-get`. Empty keeps the runner's.
+
 ## [0.10.0] - 2026-11-09
 
 ### Added
@@ -145,7 +151,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/rehearse.sh` runs the smoke jobs' install, hooks, update and rollback on a workstation, from a product's root.
 - A product names its component keys, schema label, operator secrets and probe paths as inputs, and adds its own smoke checks as hooks in `.github/smoke.d`.
 
-[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/morzecrew/bundle-ci/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/morzecrew/bundle-ci/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/morzecrew/bundle-ci/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/morzecrew/bundle-ci/compare/v0.9.0...v0.9.1

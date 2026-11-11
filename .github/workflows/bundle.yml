@@ -59,6 +59,10 @@ on:
         description: The runner label every job runs on
         type: string
         default: ubuntu-24.04
+      container-options:
+        description: "Docker options for the job's container: public DNS resolvers unless set, as the runner's own have failed inside job containers; empty uses the runner's (a self-hosted runner with internal DNS only)"
+        type: string
+        default: --dns 1.1.1.1 --dns 8.8.8.8
       components:
         description: The manifest's `images:` keys pin.sh pins, space-separated
         type: string
@@ -114,7 +118,7 @@ on:
       bundle-ci-ref:
         description: The bundle-ci ref whose scripts the jobs run
         type: string
-        default: v0.10.0 # bundle-ci-ref: a release rewrites this to its tag
+        default: v0.10.1 # bundle-ci-ref: a release rewrites this to its tag
     secrets:
       minisign-key:
         description: The minisign secret key, for dev and release signing
@@ -150,6 +154,7 @@ jobs:
     timeout-minutes: 30
     container:
       image: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+      options: ${{ inputs.container-options }}
     permissions:
       contents: read
       packages: read

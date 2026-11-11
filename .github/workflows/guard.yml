@@ -9,6 +9,10 @@ on:
         description: The runner label the job runs on
         type: string
         default: ubuntu-24.04
+      container-options:
+        description: "Docker options for the job's container: public DNS resolvers unless set, as the runner's own have failed inside job containers; empty uses the runner's (a self-hosted runner with internal DNS only)"
+        type: string
+        default: --dns 1.1.1.1 --dns 8.8.8.8
       tag-prefix:
         description: What precedes X.Y.Z in the bundle's release tags
         type: string
@@ -35,6 +39,7 @@ jobs:
     timeout-minutes: 10
     container:
       image: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
+      options: ${{ inputs.container-options }}
     permissions:
       contents: read
     outputs:

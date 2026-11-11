@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Job containers resolve names again.** Every job container gets public DNS resolvers (the new `container-options` input, `--dns 1.1.1.1 --dns 8.8.8.8` unless set): on GitHub-hosted runners the runner's own failed inside them and every build died at `apt-get`. Empty keeps the runner's, for a self-hosted runner with internal DNS only.
+- **Job containers resolve names again.** Each gets public DNS resolvers through the new `container-options` input (`--dns 1.1.1.1 --dns 8.8.8.8` unless set): on GitHub-hosted runners the runner's own failed in them, and builds died at `apt-get`. Empty keeps the runner's.
 
 ## [0.10.0] - 2026-11-09
 

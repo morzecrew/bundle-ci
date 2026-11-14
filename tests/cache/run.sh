@@ -203,6 +203,24 @@ expect "the abandoned fill goes" no "$([ -e "${cache}/.fill.abandoned" ] && echo
 expect "its old lock goes" no "$([ -e "${old_lock}" ] && echo yes || echo no)"
 expect "a recent entry stays" yes "$([ -f "${entry}/index.json" ] && echo yes || echo no)"
 
+echo "# two prunes at once both pass: jobs on one runner share the cache"
+race=${work}/race
+for i in $(seq 1 300); do
+	d=$(printf '%064x' "${i}")
+	mkdir -p "${race}/ghcr.io/acme/app$((i % 7))/${d}"
+	: >"${race}/ghcr.io/acme/app$((i % 7))/${d}.lock"
+done
+find "${race}" -mindepth 1 -exec touch -d '20 days ago' {} +
+bash "${script}" prune "${race}" 14 2>"${work}/race.a" &
+first=$!
+bash "${script}" prune "${race}" 14 2>"${work}/race.b" &
+second=$!
+status=0
+wait "${first}" || status=1
+wait "${second}" || status=1
+expect "neither prune fails ($(cat "${work}/race.a" "${work}/race.b" | head -1))" 0 "${status}"
+expect "the old entries are gone" no "$([ -e "${race}/ghcr.io" ] && echo yes || echo no)"
+
 echo "# a pin that is not repo@digest is refused"
 if out=$(run fill "${cache}" ghcr.io/acme/demo-backend:main 2>&1); then
 	fail "a tag alone is refused: it was accepted"

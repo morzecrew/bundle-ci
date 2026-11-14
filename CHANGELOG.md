@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A private repository on GitHub Free or Team can publish.** `publish.yml`'s new `attest` input, `true` unless set, turns off the provenance attestation, which those plans don't offer for private repositories: the step failed every publish after the bundle was pushed.
+
 ## [0.11.0] - 2026-11-11
 
 ### Added

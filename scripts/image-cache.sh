@@ -182,11 +182,16 @@ prune() {
 	[ -d "${dir}" ] || return 0
 	# Entries are directories named by a digest's 64 hex digits, each with a
 	# `.lock` beside it; a fill that died midway left a `.fill.*` directory.
-	find "${dir}" -mindepth 1 -regextype posix-extended \( \
+	# Jobs on one runner share the cache and may prune it at the same moment:
+	# -ignore_readdir_race keeps an entry another prune removed mid-walk from
+	# failing this one.
+	find "${dir}" -ignore_readdir_race -mindepth 1 -regextype posix-extended \( \
 		\( -type d \( -regex '.*/[0-9a-f]{64}' -o -name '.fill.*' \) \) \
 		-o \( -type f -regex '.*/[0-9a-f]{64}\.lock' \) \) \
 		-mtime "+${days}" -prune -exec rm -rf {} +
-	find "${dir}" -mindepth 1 -type d -empty -delete
+	# Tidying only: a directory another prune emptied and removed first is not
+	# this one's failure, so neither is anything this pass can't remove.
+	find "${dir}" -ignore_readdir_race -mindepth 1 -type d -empty -delete 2>/dev/null || true
 }
 
 case "${1:-}" in

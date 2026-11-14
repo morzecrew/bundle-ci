@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Two jobs on one runner no longer fail each other's image-cache prune.** Both walked the shared cache, and the second failed on entries the first had just removed (`find: … No such file or directory`), failing its smoke test. A prune now passes over what disappears mid-walk.
+
 ## [0.12.0] - 2026-11-14
 
 ### Added

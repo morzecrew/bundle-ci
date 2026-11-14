@@ -436,6 +436,7 @@ inputs wherever the workflow they call takes one:
 | `package` (`bundle.yml`, `publish.yml`, `retention.yml`) | the repository's name | `dotdash-canary` |
 | `tag-prefix` (`bundle.yml`, `guard.yml`) | `v` | `canary-v`, or `v` to release with the first |
 | `smoke-hooks` (`bundle.yml`) | `.github/smoke.d` | `.github/canary-smoke.d` |
+| `artifact` (`bundle.yml`, `publish.yml`, `github-release.yml`) | `bundle` | `bundle-canary`, needed only when one workflow run builds both bundles |
 
 Released with the first bundle, it keeps `tag-prefix: v` and its
 `<name>-release.yml` triggers on `v*` as well: one tag publishes both at one

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **One run can build several bundles.** `bundle.yml`, `publish.yml` and `github-release.yml` take `artifact`, the name the archive travels under, `bundle` unless set. Two bundles built in one run overwrote each other's archive, so the second smoke test installed the first bundle, or found none.
+
 - **A private repository on GitHub Free or Team can publish.** `publish.yml`'s new `attest` input, `true` unless set, turns off the provenance attestation, which those plans don't offer for private repositories: the step failed every publish after the bundle was pushed.
 
 ## [0.11.0] - 2026-11-11

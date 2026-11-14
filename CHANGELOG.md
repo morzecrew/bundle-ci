@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-14
+
 ### Added
 
 - **One run can build several bundles.** `bundle.yml`, `publish.yml` and `github-release.yml` take `artifact`, the name the archive travels under, `bundle` unless set. Two bundles built in one run overwrote each other's archive, so the second smoke test installed the first bundle, or found none.
@@ -163,7 +165,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/rehearse.sh` runs the smoke jobs' install, hooks, update and rollback on a workstation, from a product's root.
 - A product names its component keys, schema label, operator secrets and probe paths as inputs, and adds its own smoke checks as hooks in `.github/smoke.d`.
 
-[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/morzecrew/bundle-ci/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/morzecrew/bundle-ci/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/morzecrew/bundle-ci/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/morzecrew/bundle-ci/compare/v0.9.2...v0.10.0

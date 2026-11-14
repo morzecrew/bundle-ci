@@ -31,6 +31,10 @@ on:
         description: The paths whose last commit names the dev version, space-separated; a product whose code shares the repository adds the code's
         type: string
         default: bundle
+      artifact:
+        description: "The name of the artifact the archive travels in to the smoke jobs and publish.yml; a run that builds several bundles gives each its own, else they overwrite each other"
+        type: string
+        default: bundle
       bundle-dir:
         description: The bundle's directory; a repository with a second bundle names it, with that bundle's own version-paths, package and tag-prefix
         type: string
@@ -132,7 +136,7 @@ on:
         description: The version the bundle was built as
         value: ${{ jobs.build.outputs.version }}
       archive:
-        description: The archive's file name in the `bundle` artifact
+        description: The archive's file name in the artifact (`artifact`)
         value: ${{ jobs.build.outputs.archive }}
       proceed:
         description: "'true' when the version is not published yet; the caller needs this workflow, so its smoke tests have passed"
@@ -412,7 +416,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.existing.outputs.proceed == 'true'
         with:
-          name: bundle
+          name: ${{ inputs.artifact }}
           path: ${{ runner.temp }}/dist/${{ steps.archive.outputs.archive }}
           if-no-files-found: error
           retention-days: 7
@@ -456,7 +460,7 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: bundle
+          name: ${{ inputs.artifact }}
           path: ${{ runner.temp }}/dist
 
       - name: Start the rig
@@ -644,7 +648,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.published.outputs.archive != ''
         with:
-          name: bundle
+          name: ${{ inputs.artifact }}
           path: ${{ runner.temp }}/dist
 
       - name: Free the disk the release requires

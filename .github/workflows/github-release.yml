@@ -10,12 +10,16 @@ name: github-release
 on:
   workflow_call:
     inputs:
+      artifact:
+        description: The name of the artifact bundle.yml uploaded the archive in, its `artifact` input
+        type: string
+        default: bundle
       version:
         description: The version bundle.yml built and publish.yml published
         type: string
         required: true
       archive:
-        description: The archive's file name in the `bundle` artifact
+        description: The archive's file name in the artifact (`artifact`)
         type: string
         required: true
       changelog:
@@ -53,7 +57,7 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: bundle
+          name: ${{ inputs.artifact }}
           path: ${{ runner.temp }}/dist
 
       - name: Notes from the CHANGELOG

@@ -36,7 +36,7 @@ commit without the callers runs no workflow when tagged.
 | `pin.yml` | resolve each component's `main` to a digest, commit a changed pin to the product's main; outputs `sha` | `contents: write`, `packages: read` |
 | `guard.yml` | refuse a release tag that is not `vX.Y.Z` on main; outputs `version` | `contents: read` |
 | `bundle.yml` | build, sign, `smoke-install` and `smoke-update` (which first checks that `morzer update` refuses a tampered copy); outputs `version`, `archive`, `proceed`, `images` | `contents: read`, `packages: read` |
-| `publish.yml` | push `:<version>`, move the channel, attest its build provenance; for a release, first tag each component image `bundle-<version>` | `contents: read`, `packages: write`, `id-token: write`, `attestations: write` |
+| `publish.yml` | push `:<version>`, move the channel, attest its build provenance (`attest: false` skips it, for a private repository on GitHub Free or Team); for a release, first tag each component image `bundle-<version>` | `contents: read`, `packages: write`, `id-token: write`, `attestations: write` |
 | `github-release.yml` | for a release, create the tag's GitHub release: the version's CHANGELOG section as notes, the signed archive attached | `contents: write` |
 | `retention.yml` | keep the last dev versions and drop untagged ones | a token secret that may delete package versions |
 

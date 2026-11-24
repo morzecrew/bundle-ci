@@ -86,8 +86,11 @@ start() {
 
 	# GNU tar and zstd: busybox's tar reads no zstd, and both tools.sh
 	# and smoke.sh unpack .tar.zst. sudo lets smoke.sh run unchanged as root.
-	if ! docker exec "${name}" apk add --no-cache --quiet \
-		bash curl jq openssl sudo zstd minisign tar; then
+	# zstd-libs upgraded with it: the image carries an older one, which a
+	# newer zstd from the repository can't load (1.6.0 over 1.5.7: "symbol
+	# not found"), and apk keeps an installed library that satisfies the name.
+	if ! docker exec "${name}" apk add --no-cache --quiet --upgrade \
+		bash curl jq openssl sudo zstd zstd-libs minisign tar; then
 		stop "${name}"
 		die "the packages in ${name} did not install"
 	fi

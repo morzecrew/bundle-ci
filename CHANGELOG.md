@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The rigs install zstd with its library upgraded beside it. The Docker image carries zstd-libs 1.5.7, and with zstd 1.6.0 in Alpine's repository `apk add zstd` left the old library in place, so the new zstd failed to load ("symbol not found") and no rig could unpack morzer.
+
 ## [0.12.1] - 2026-11-14
 
 ### Fixed

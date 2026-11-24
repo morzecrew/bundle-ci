@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-24
+
 ### Fixed
 
 - The rigs install zstd with its library upgraded beside it. The Docker image carries zstd-libs 1.5.7, and with zstd 1.6.0 in Alpine's repository `apk add zstd` left the old library in place, so the new zstd failed to load ("symbol not found") and no rig could unpack morzer.
@@ -175,7 +177,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/rehearse.sh` runs the smoke jobs' install, hooks, update and rollback on a workstation, from a product's root.
 - A product names its component keys, schema label, operator secrets and probe paths as inputs, and adds its own smoke checks as hooks in `.github/smoke.d`.
 
-[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/morzecrew/bundle-ci/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/morzecrew/bundle-ci/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/morzecrew/bundle-ci/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/morzecrew/bundle-ci/compare/v0.10.1...v0.11.0

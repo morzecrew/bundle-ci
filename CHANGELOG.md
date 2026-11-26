@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-26
+
 ### Added
 
 - **The release key can be kept to release tags.** `bundle.yml` and `retention.yml` take `environment`, the GitHub environment the job that reads the secret runs in, none unless set. A key held only in an environment limited to `v*` tags then signs nothing a branch builds; the caller still passes it by name.
@@ -181,7 +183,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scripts/rehearse.sh` runs the smoke jobs' install, hooks, update and rollback on a workstation, from a product's root.
 - A product names its component keys, schema label, operator secrets and probe paths as inputs, and adds its own smoke checks as hooks in `.github/smoke.d`.
 
-[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.12.2...HEAD
+[Unreleased]: https://github.com/morzecrew/bundle-ci/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/morzecrew/bundle-ci/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/morzecrew/bundle-ci/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/morzecrew/bundle-ci/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/morzecrew/bundle-ci/compare/v0.11.0...v0.12.0

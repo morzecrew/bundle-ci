@@ -22,6 +22,10 @@ on:
         description: How many dev versions to keep
         type: number
         default: 5
+      environment:
+        description: "The GitHub environment the job runs in, such as one limited to main that holds the token; empty runs it in none"
+        type: string
+        default: ""
     secrets:
       token:
         description: A token that may delete the package's versions; GITHUB_TOKEN cannot
@@ -42,6 +46,9 @@ jobs:
     # the caller's concurrency group and every run queued behind it. Each is
     # at least twice the longest successful run seen on self-hosted runners.
     timeout-minutes: 15
+    # A secret kept only in an environment reaches the job that names it: the
+    # calling job cannot name one, but passes the secret by name all the same.
+    environment: ${{ inputs.environment }}
     container:
       image: ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
       options: ${{ inputs.container-options }}

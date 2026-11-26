@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The release key can be kept to release tags.** `bundle.yml` and `retention.yml` take `environment`, the GitHub environment the job that reads the secret runs in, none unless set. A key held only in an environment limited to `v*` tags then signs nothing a branch builds; the caller still passes it by name.
+
 ## [0.12.2] - 2026-11-24
 
 ### Fixed

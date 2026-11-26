@@ -201,6 +201,13 @@ jobs:
       token: ${{ secrets.GH_PAT }}
 ```
 
+A key every branch's workflow can read signs whatever any branch builds. To
+keep the release key to release tags, hold `MINISIGN_RELEASE_KEY` in an
+environment whose deployment rule allows `v*` tags alone, and give its name to
+`bundle.yml` as `environment` in the release workflow; `secrets:` still passes
+the key by name, as above. `retention.yml` takes `environment` too, for a token
+held in one that allows `main`.
+
 ### `bundle.yml`'s inputs
 
 | Input | Default | |
@@ -225,6 +232,7 @@ jobs:
 | `image-cache` | `true` | on a self-hosted runner, load the pinned images from the runner's cache (below) |
 | `container-options` | `--dns 1.1.1.1 --dns 8.8.8.8` | Docker options for the job's container, as for every workflow with one (`guard`, `pin`, `publish`, `retention` too): public resolvers, since the runner's have failed inside job containers; empty for the runner's own, on a self-hosted runner with internal DNS only |
 | `morzer-version` | this release's pin | the morzer release the build and the rigs install, 0.13.0 or later, verified by its signature as the pin is |
+| `environment` | — | the GitHub environment the build job, the one that signs, runs in, whose secrets it then reads (above); empty for none |
 
 ### The image cache
 
